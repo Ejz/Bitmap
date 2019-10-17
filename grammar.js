@@ -2,10 +2,62 @@ const fs = require('fs');
 const path = require('path');
 const jison = require('jison');
 
+function clog() {
+    console.log(1111111)
+}
+
 const queryGrammar = {
-    bnf: {
-        query: [
+    lex: {
+        rules: [
+           ['[0-9]+\\b', 'return "INTEGER";'],
+           ['\\s+', '/* */'],
+           ['[a-zA-Z_][a-zA-Z0-9_]*\\b', 'return "IDENT";'],
+           ['\\*', 'return "*";'],
+           ['@', 'return "@";'],
+           [':', 'return ":";'],
+           ['$', 'return "EOF";'],
         ],
+    },
+    bnf: {
+        expressions: [
+            ['e EOF', 'return $1'],
+        ],
+        e: [
+            ['@ IDENT : value', '$$ = {iterators: [[$4, $2]]}'],
+            ['( e )', '$$ = $2'],
+            ['value', '$$ = {iterators: [[$1]]}'],
+            // ['e e', '$$ = $1'],
+            // ['e & e', '$$ = $1'],
+            // ['e | e', '$$ = $1'],
+            // ['- e', '$$ = $1'],
+            
+        ],
+        value: [
+            ['INTEGER', '$$ = $1'],
+            ['IDENT', '$$ = $1'],
+            ['*', '$$ = $1'],
+            // ['VALUE', '$$ = $1'],
+        ],
+        // expressions: [
+        //     ['query operand term', ''],
+        //     ['query term', ''],
+        //     ['term', ''],
+        // ],
+        // term: [
+        //     ['( term )', ''],
+        //     ['@ IDENT : value', ''],
+        //     ['value', ''],
+        // ],
+        // value: [
+        //     ['*', ''],
+        //     ['INTEGER', '$$ = $1'],
+        //     ['IDENT', '$$ = $1'],
+        //     ['VALUE', '$$ = $1'],
+        // ],
+        // operand: [
+        //     ['&', ''],
+        //     ['|', ''],
+        // ],
     },
 };
 
@@ -16,6 +68,7 @@ const commandGrammar = {
             ['KW_ADD IDENT INTEGER KW_FIELDS pairs', 'return {action: $1, index: $2, id: $3, values: $5}'],
             ['KW_DROP IDENT', 'return {action: $1, index: $2}'],
             ['KW_PING', 'return {action: $1}'],
+            ['KW_SEARCH IDENT value', 'return {action: $1, index: $2, query: $3}'],
         ],
         pairs: [
             ['pairs pair', '$$ = $1.concat($2)'],
@@ -44,7 +97,7 @@ const commandGrammar = {
 
 const lexerKeywords = [
     'PING', 'CREATE', 'DROP', 'ADD', 'DELETE', 'FIELDS', 'STRING',
-    'SCHEMA',
+    'SCHEMA', 'SEARCH',
 ];
 const lexerIdentRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const lexerIntegerRegex = /^\d+$/;
@@ -71,20 +124,17 @@ function RespLexer() {
         this.yytext = t;
         if (lexerIntegerRegex.test(t)) {
             this.yytext = parseInt(t);
-            console.log('INTEGER');
             return 'INTEGER';
         }
         if (lexerKeywords.includes(t.toUpperCase())) {
             this.yytext = t.toUpperCase();
-            console.log('KW_' + t.toUpperCase());
             return 'KW_' + t.toUpperCase();
         }
         if (lexerIdentRegex.test(t)) {
             this.yytext = t.toLowerCase();
-            console.log('IDENT')
             return 'IDENT';
         }
-        return 'INVALID';
+        return 'VALUE';
     };
 }
 

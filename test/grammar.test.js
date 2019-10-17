@@ -28,3 +28,21 @@ test('grammar - command - add', () => {
     expect(cmd['values'][0]).toStrictEqual({field: 'f1', value: 'asd1'});
     expect(cmd['values'][1]).toStrictEqual({field: 'f2', value: 'asd2'});
 });
+
+test('grammar - command - search', () => {
+    let command = new grammar.Command();
+    command.init();
+    let cmd = command.parse([
+        'SEARCH', 'Index', 'hello world',
+    ]);
+    expect(cmd['action']).toBe('SEARCH');
+    expect(cmd['index']).toBe('index');
+    expect(cmd['query']).toBe('hello world');
+});
+
+test('grammar - query - simple', () => {
+    let query = new grammar.Query();
+    query.init();
+    let q = query.parse('*');
+    expect(q['iterators']).toStrictEqual([['*']]);
+});

@@ -10,6 +10,7 @@ const to_resp = helpers.to_resp;
 const from_resp = helpers.from_resp;
 
 const CRLF = '\r\n';
+const ERR_PREFIX = 'ERR: ';
 
 const db = {};
 
@@ -69,16 +70,16 @@ const server = net.createServer(async (socket) => {
             command = commandGrammar.parse(req);
         } catch (e) {
             console.log(e);
-            socket.write(to_resp(new Error('ERR: Syntax error!')));
+            socket.write(to_resp(new Error(ERR_PREFIX + 'Syntax error!')));
             continue;
         }
         try {
             socket.write(to_resp(await actions[command.action].call.apply(null, [command])));
         } catch (e) {
-            if (e.message.indexOf('ERR: ') === 0) {
+            if (e.message.indexOf(ERR_PREFIX) === 0) {
                 socket.write(to_resp(e));
             } else {
-                socket.write(to_resp(new Error('ERR: Internal error!')));
+                socket.write(to_resp(new Error(ERR_PREFIX + 'Internal error!')));
             }
         }
 

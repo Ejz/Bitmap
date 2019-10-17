@@ -1,26 +1,6 @@
-const jison = require('jison');
-
 const CR = '\r'
 const LF = '\n'
 const CRLF = CR + LF;
-
-function command_grammar() {
-    var grammar = {
-        "lex": {
-            "rules": [
-               ["\\s+", "/* skip whitespace */"],
-               ["[a-f0-9]+", "return 'HEX';"]
-            ]
-        },
-
-        "bnf": {
-            "hex_strings" :[ "hex_strings HEX",
-                             "HEX" ]
-        }
-    };
-    var parser = new jison.Parser(grammar);
-    return parser.parse("adfe34bc e82a");
-}
 
 function to_resp(message) {
     let resp = [];
@@ -79,7 +59,14 @@ async function from_resp(fread) {
     throw new Error('UNKNOWN TYPE: ' + type);
 }
 
+function to(promise) {
+    return promise.then((data) => {
+        return [null, data];
+    }).catch(err => [err]);
+}
+
 module.exports = {
+    to,
     to_resp,
     from_resp,
 };

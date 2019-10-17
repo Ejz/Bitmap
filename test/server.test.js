@@ -53,7 +53,7 @@ test('server - index', async () => {
     } catch (e) {
         res = e.message;
     }
-    expect(res).toContain('Already');
+    expect(res).toContain('Index ALREADY exists');
     res = await client.send(`
         drop index
     `.split(/\s+/).filter(Boolean));

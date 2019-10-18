@@ -3,15 +3,23 @@ const grammar = require('../grammar');
 test('grammar - command - create', () => {
     let command = new grammar.Command();
     command.init();
-    let cmd = command.parse([
+    let cmd;
+    //
+    cmd = command.parse([
         'CREATe', 'Index', 'SCHEMA',
         'f1', 'String',
         'f2', 'strinG',
     ]);
     expect(cmd['action']).toBe('CREATE');
     expect(cmd['index']).toBe('index');
-    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'STRING'});
-    expect(cmd['fields'][1]).toStrictEqual({field: 'f2', type: 'STRING'});
+    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'STRING', min: undefined, max: undefined});
+    expect(cmd['fields'][1]).toStrictEqual({field: 'f2', type: 'STRING', min: undefined, max: undefined});
+    //
+    cmd = command.parse([
+        'CREATe', 'Index', 'SCHEMA',
+        'f1', 'String', 'min', 2, 'max', 4
+    ]);
+    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'STRING', min: 2, max: 4});
 });
 
 test('grammar - command - add', () => {
@@ -44,5 +52,5 @@ test('grammar - query - simple', () => {
     let query = new grammar.Query();
     query.init();
     let q = query.parse('*');
-    expect(q['iterators']).toStrictEqual([['*']]);
+    expect(q['values']).toStrictEqual(['*']);
 });

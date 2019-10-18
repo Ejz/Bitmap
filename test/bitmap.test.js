@@ -19,7 +19,7 @@ test('bitmap - create / add', async () => {
     await bitmap.dropIndex({index: 'index'});
 });
 
-test('bitmap - search', async () => {
+test('bitmap - search - single field', async () => {
     let res;
     res = await bitmap.createIndex({index: 'index', fields: [{field: 'f1', type: 'STRING'}]});
     let strings = ['foo', 'bar', 'hello', 'world'];
@@ -27,11 +27,28 @@ test('bitmap - search', async () => {
     await strings.map((value) => {
         return bitmap.addRecordToIndex({index: 'index', id: id++, values: [{field: 'f1', value}]});
     });
-    res = await bitmap.searchIndex({index: 'index', query: '*'});
-    expect(res).toStrictEqual([1, 2, 3, 4]);
-    res = await bitmap.searchIndex({index: 'index', query: '@f1:bar'});
-    expect(res).toStrictEqual([2]);
-    res = await bitmap.searchIndex({index: 'index', query: '@f1:unknown'});
-    expect(res).toStrictEqual([]);
+    let cases = {
+        '*': [1, 2, 3, 4],
+        '@f1:bar': [2],
+        '(@f1:bar)': [2],
+        '@f1:(bar)': [2],
+        '( @f1 : ( bar ) )': [2],
+        '@f1:unknown': [],
+        '@f1:foo | @f1:bar': [1, 2],
+        '@f1:foo & @f1:foo': [1],
+        '@f1:foo | @f1:bar & @f1:foo': [1],
+        '@f1:foo | (@f1:bar & @f1:foo)': [1],
+        '(@f1:foo | @f1:bar) & @f1:foo': [1],
+        '@f1:foo & @f1:(bar|foo)': [1],
+        '@f1:bar & @f1:(bar|foo)': [2],
+        '@f1:bar @f1:(bar|foo)': [2],
+        '-@f1:bar': [1, 3, 4],
+        '-@f1:(bar|foo)': [3, 4],
+        '-@f1:bar & @f1:(unknown|foo)': [1],
+    };
+    for (const [query, result] of Object.entries(cases)) {
+        res = await bitmap.searchIndex({index: 'index', query});
+        expect(res).toStrictEqual(result);
+    }
     await bitmap.dropIndex({index: 'index'});
 });

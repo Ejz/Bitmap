@@ -38,6 +38,8 @@ function addRecordToIndex({index, id, values}) {
         if (ids.has(id)) {
             return reject(new Error('ERR: ID ALREADY exists: ' + id));
         }
+        storage[index].min = Math.min(...[id, storage[index].min].filter(Number));
+        storage[index].max = Math.max(...[id, storage[index].max].filter(Number));
         ids.add(id);
         let available = Object.keys(fields);
         let v = {};
@@ -60,34 +62,23 @@ function addRecordToIndex({index, id, values}) {
             if (!bitmaps[digest]) {
                 bitmaps[digest] = new RoaringBitmap32([]);
             }
+            console.log(value, id)
             bitmaps[digest].add(id);
         });
         return resolve('ADDED');
     });
 }
 
-function searchIndex({index, query}) {
+function searchIndex({index, query, limit}) {
     return new Promise((resolve, reject) => {
         if (!storage[index]) {
             return reject(new Error('ERR: Index NOT exist: ' + index));
         }
-        let iterator = queryGrammar.parse(query);
-        iterator = getIterator(index, iterator);
-        // try {
-        // } catch (e) {
-        //     if (e.message.indexOf(ERR_PREFIX) === 0) {
-        //         socket.write(to_resp(e));
-        //     } else {
-        //         socket.write(to_resp(new Error(ERR_PREFIX + 'Internal error' + query)));
-        //     }
-        //     e = e.message;
-        //     if (e.contains('ERR: '))
-        //     return reject(new Error('ERR: Query error: ' + query));
-        // }
-        // let {fields, ids} = storage[index];
-        // let iterator = ids.iterator();
+        limit = limit || 100;
+        query = queryGrammar.parse(query);
+        let iterator = getBitmap(index, query).iterator();
         let ret = [];
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < limit; i++) {
             let {value, done} = iterator.next();
             if (done) {
                 break;
@@ -98,37 +89,77 @@ function searchIndex({index, query}) {
     });
 }
 
-function getIterator(index, iterator) {
-    if (Array.isArray(iterator)) {
-        let [value, field] = iterator;
+function getBitmap(index, query) {
+    if (query.values) {
+        let {values, field} = query;
+        if (values.length > 1) {
+            let queries = [];
+            values.forEach((value) => {
+                queries.push({values: [value], field});
+            });
+            return getOrBitmap(index, queries);
+        }
         let f;
         if (field) {
             field = field.toLowerCase();
             f = storage[index].fields[field];
             if (!f) {
-                throw new Error('ERR: Column NOT exist: ' + f);
+                throw ERR_PREFIX + 'Column NOT exist: ' + f;
             }
         }
+        let value = values[0];
         if (value === '*') {
-            return storage[index].ids.iterator();
+            return storage[index].ids;
         }
-        let digest = md5(value);
-        let bitmap = f.bitmaps[digest];
-        return bitmap ? bitmap.iterator() : new RoaringBitmap32Iterator();
+        return f.bitmaps[md5(value)] || new RoaringBitmap32();
     }
-    let {op, iterators} = iterator;
+    let {op, queries} = query;
     op = op || '&';
     if (op === '&') {
-        return getAndIterator(index, iterators);
+        return getAndBitmap(index, queries);
     }
-    // if (op === '|') {
-    //     return getOrIterator({index, iterators});
-    // }
+    if (op === '|') {
+        return getOrBitmap(index, queries);
+    }
+    if (op === '-') {
+        return getNotBitmap(index, queries);
+    }
 }
 
-function getAndIterator(index, iterators) {
-    let iterator = iterators[0];
-    return getIterator(index, iterator);
+function getAndBitmap(index, queries) {
+    queries = queries.map((query) => {
+        if (!(query instanceof RoaringBitmap32)) {
+            query = getBitmap(index, query);
+        }
+        return query;
+    });
+    let and = RoaringBitmap32.and(queries[0], queries[1]);
+    queries = queries.splice(2);
+    for (let i = 0; i < queries.length; i++) {
+        and = and.andInPlace(queries[i]);
+    }
+    return and;
+}
+
+function getOrBitmap(index, queries) {
+    queries = queries.map((query) => {
+        if (!(query instanceof RoaringBitmap32)) {
+            query = getBitmap(index, query);
+        }
+        return query;
+    });
+    return RoaringBitmap32.orMany(queries);
+}
+
+function getNotBitmap(index, [query]) {
+    if (!(query instanceof RoaringBitmap32)) {
+        query = getBitmap(index, query);
+    }
+    let bitmap = new RoaringBitmap32(query);
+    let {min, max} = storage[index];
+    console.log(min, max);
+    bitmap.flipRange(min, max + 1);
+    return bitmap;
 }
 
 function dropIndex({index}) {

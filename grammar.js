@@ -1,27 +1,29 @@
 const fs = require('fs');
 const path = require('path');
 const jison = require('jison');
+const helpers = require('./helpers');
 
-function clog() {
-    console.log(1111111)
-}
+const md5 = helpers.md5;
 
 const queryGrammar = {
     lex: {
         rules: [
             ['([+-]\\s*)?[0-9]+\\b', 'return "INTEGER";'],
             ['\\s+', '/* */'],
+            ['[Mm][Ii][Nn]\\b', 'return "KW_MIN";'],
+            ['[Mm][Aa][Xx]\\b', 'return "KW_MAX";'],
             ['@[a-zA-Z_][a-zA-Z0-9_]*\\b', 'return "IDENT";'],
             ['\\*', 'return "*";'],
             ['\\|', 'return "|";'],
             ['\\(', 'return "(";'],
             ['\\)', 'return ")";'],
-            // ['\\[', 'return "[";'],
-            // ['\\]', 'return "]";'],
+            ['\\[', 'return "[";'],
+            ['\\]', 'return "]";'],
             ['&', 'return "&";'],
             ['-', 'return "-";'],
             [':', 'return ":";'],
-            ['[a-zA-Z0-9_\\.]+', 'return "VALUE";'],
+            [',', 'return ",";'],
+            ['[a-zA-Z0-9_\\.]+', 'console.log(1); return "VALUE";'],
             ['$', 'return "EOF";'],
         ],
     },
@@ -53,10 +55,18 @@ const queryGrammar = {
         ],
         value: [
             ['( value )', '$$ = $2'],
-            ['INTEGER', '$$ = $1'],
-            ['[ INTEGER INTEGER ]', '$$ = [$2 $3]'],
+            ['INTEGER', '$$ = parseInt($1)'],
             ['VALUE', '$$ = $1'],
             ['*', '$$ = $1'],
+            ['KW_MIN', '$$ = "MIN"'],
+            ['KW_MAX', '$$ = "MAX"'],
+            ['[ INTEGER , INTEGER ]', '$$ = [parseInt($2), parseInt($4)]'],
+            ['[ INTEGER , KW_MAX ]', '$$ = [parseInt($2), "MAX"]'],
+            ['[ INTEGER , KW_MIN ]', '$$ = [parseInt($2), "MIN"]'],
+            ['[ KW_MIN , INTEGER ]', '$$ = ["MIN", parseInt($4)]'],
+            ['[ KW_MAX , INTEGER ]', '$$ = ["MAX", parseInt($4)]'],
+            ['[ KW_MIN , KW_MAX ]', '$$ = ["MIN", "MAX"]'],
+            ['[ KW_MAX , KW_MIN ]', '$$ = ["MAX", "MIN"]'],
         ],
     },
 };
@@ -158,10 +168,6 @@ function RespLexer() {
 
 class Command {
     constructor() {
-        this.parser = null;
-    }
-
-    init() {
         this.parser = new jison.Parser(commandGrammar);
         this.parser.lexer = new RespLexer();
     }
@@ -173,11 +179,13 @@ class Command {
 
 class Query {
     constructor() {
-        this.parser = null;
-    }
-
-    init() {
-        this.parser = new jison.Parser(queryGrammar);
+        let hash = md5(JSON.stringify(queryGrammar));
+        let target = path.resolve(__dirname + '/tmp', hash + '.js');
+        if (!fs.existsSync(target)) {
+            let parser = new jison.Parser(queryGrammar);
+            fs.writeFileSync(target, parser.generate());
+        }
+        this.parser = require(target);
     }
 
     parse(string) {

@@ -2,7 +2,6 @@ const grammar = require('../grammar');
 
 test('grammar - command - create', () => {
     let command = new grammar.Command();
-    command.init();
     let cmd;
     //
     cmd = command.parse([
@@ -36,7 +35,6 @@ test('grammar - command - create', () => {
 
 test('grammar - command - add', () => {
     let command = new grammar.Command();
-    command.init();
     let cmd = command.parse([
         'ADD', 'Index', 1, 'fields',
         'f1', 'asd1',
@@ -51,7 +49,6 @@ test('grammar - command - add', () => {
 
 test('grammar - command - search', () => {
     let command = new grammar.Command();
-    command.init();
     let cmd = command.parse([
         'SEARCH', 'Index', 'hello world',
     ]);
@@ -62,7 +59,6 @@ test('grammar - command - search', () => {
 
 test('grammar - query - simple', () => {
     let query = new grammar.Query();
-    query.init();
     let q = query.parse('*');
     expect(q['values']).toStrictEqual(['*']);
 });

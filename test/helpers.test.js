@@ -2,18 +2,24 @@ const helpers = require('../helpers');
 
 const CRLF = '\r\n';
 
-test('to_rsp simple string', () => {
-    let res = helpers.to_resp('hello');
+test('toResp - simple string', () => {
+    let res = helpers.toResp('hello');
     expect(res).toBe('+hello' + CRLF);
 });
 
-test('to_rsp error object', () => {
-    let res = helpers.to_resp(new Error('foo'));
+test('toResp - error object', () => {
+    let res = helpers.toResp(new Error('foo'));
     expect(res).toBe('-foo' + CRLF);
 });
 
-test('from_rsp simple string', async () => {
+test('fromResp - simple string', async () => {
     let fgets = () => Promise.resolve('+hello' + CRLF);
-    let res = await helpers.from_resp(fgets);
+    let res = await helpers.fromResp(fgets);
     expect(res).toBe('hello');
+});
+
+test('rand', () => {
+    expect([1, 2, 3, 4, 5].includes(helpers.rand(1, 5))).toBe(true);
+    expect(helpers.rand(1, 1)).toBe(1);
+    expect(helpers.rand(-1, -1)).toBe(-1);
 });

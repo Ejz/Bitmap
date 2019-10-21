@@ -1,17 +1,13 @@
 const RoaringBitmap32 = require('roaring/RoaringBitmap32');
 const RoaringBitmap32Iterator = require('roaring/RoaringBitmap32Iterator');
-const crypto = require('crypto');
-const grammar =  require('./grammar');
+const grammar = require('./grammar');
+const helpers = require('./helpers');
 const storage = {};
 
-function md5(string) {
-    return crypto.createHash('md5').update(string).digest('hex');
-}
-
 const queryGrammar = new grammar.Query();
-queryGrammar.init();
 
 const ERR_PREFIX = 'ERR: ';
+const md5 = helpers.md5;
 
 function createIndex({index, fields}) {
     return new Promise((resolve, reject) => {
@@ -26,7 +22,7 @@ function createIndex({index, fields}) {
             let bitmaps = {};
             if (type === 'INTEGER') {
                 for (let i = min; i <= max; i++) {
-                    bitmaps[i] = new RoaringBitmap32([]);
+                    bitmaps['_' + i] = new RoaringBitmap32([]);
                 }
             }
             f[field] = {
@@ -71,7 +67,7 @@ function addRecordToIndex({index, id, values}) {
                     return reject(new Error(invalid));
                 }
                 for (let i = value; i <= max; i++) {
-                    bitmaps[i].add(id);
+                    bitmaps['_' + i].add(id);
                 }
             } else if (type === 'ENUM') {
                 if (!fields[field].enums.includes(value)) {
@@ -103,6 +99,7 @@ function searchIndex({index, query, limit}) {
         }
         limit = limit || 100;
         query = queryGrammar.parse(query);
+        console.log(query)
         let iterator = getBitmap(index, query).iterator();
         let ret = [];
         for (let i = 0; i < limit; i++) {
@@ -135,8 +132,30 @@ function getBitmap(index, query) {
             return bitmaps[md5(value)] || new RoaringBitmap32();
         }
         if (type === 'INTEGER') {
+            if (!Array.isArray(value)) {
+                value = [value, value];
+            }
             let [from, to] = value;
-            return RoaringBitmap32.andNot(bitmaps[from], bitmaps[to]);
+            from = ['MIN', 'MAX'].includes(from) ? (from == 'MAX' ? max : min) : from;
+            to = ['MIN', 'MAX'].includes(to) ? (to == 'MAX' ? max : min) : to;
+            if (to < from || to < min || from > max) {
+                return new RoaringBitmap32();
+            }
+            from = from < min ? min : from;
+            to = to > max ? max : to;
+            if (to == min) {
+                return bitmaps['_' + to];
+            }
+            if (from == min && to == max) {
+                return bitmaps['_' + to];
+            }
+            // if (from == )
+            // console.log(bitmaps)
+            // console.log('_' + from, '_' + (to - 1));
+            // console.log(RoaringBitmap32.andNot(bitmaps[from], bitmaps[to + 1]).toArray());
+            // console.log(bitmaps['_' + from].toArray());
+            // console.log(bitmaps['_' + (to - 1)].toArray());
+            return RoaringBitmap32.andNot(bitmaps['_' + to], bitmaps['_' + (from - 1)]);
         }
     }
     let {op, queries} = query;

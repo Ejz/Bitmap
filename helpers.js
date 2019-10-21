@@ -1,8 +1,20 @@
-const CR = '\r'
-const LF = '\n'
+const crypto = require('crypto');
+
+const CR = '\r';
+const LF = '\n';
 const CRLF = CR + LF;
 
-function to_resp(message) {
+function md5(string) {
+    return crypto.createHash('md5').update(string).digest('hex');
+}
+
+function rand(min, max) {
+    min = parseInt(min);
+    max = parseInt(max);
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function toResp(message) {
     let resp = [];
     if (Array.isArray(message)) {
         resp.push('*' + message.length + CRLF);
@@ -27,7 +39,7 @@ function to_resp(message) {
     return resp.join('');
 }
 
-async function from_resp(fread) {
+async function fromResp(fread) {
     let line = await fread();
     let type = line[0];
     let result = line.substr(1, line.length - 3);
@@ -67,6 +79,10 @@ function to(promise) {
 
 module.exports = {
     to,
-    to_resp,
-    from_resp,
+    md5,
+    rand,
+    toResp,
+    fromResp,
+    to_resp: toResp,
+    from_resp: fromResp,
 };

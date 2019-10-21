@@ -4,7 +4,6 @@ const bitmap = require('./bitmap');
 const grammar =  require('./grammar');
 
 const commandGrammar = new grammar.Command();
-commandGrammar.init();
 
 const to_resp = helpers.to_resp;
 const from_resp = helpers.from_resp;

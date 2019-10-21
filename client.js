@@ -3,8 +3,8 @@ const helpers = require('./helpers');
 
 const CRLF = '\r\n';
 
-const to_resp = helpers.to_resp;
-const from_resp = helpers.from_resp;
+const toResp = helpers.toResp;
+const fromResp = helpers.fromResp;
 
 class Client {
     constructor(port) {
@@ -12,7 +12,7 @@ class Client {
         this.socket.connect(port);
     }
     send(message) {
-        message = to_resp(message);
+        message = toResp(message);
         this.socket.write(message);
         let socket = this.socket;
         let buffer = '';
@@ -49,7 +49,7 @@ class Client {
         return new Promise(async (resolve, reject) => {
             let req;
             try {
-                req = await from_resp(fread);
+                req = await fromResp(fread);
             } catch (e) {
                 return reject(e);
             }

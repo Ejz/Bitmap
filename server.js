@@ -5,8 +5,8 @@ const grammar =  require('./grammar');
 
 const commandGrammar = new grammar.Command();
 
-const to_resp = helpers.to_resp;
-const from_resp = helpers.from_resp;
+const toResp = helpers.toResp;
+const fromResp = helpers.fromResp;
 
 const CRLF = '\r\n';
 const ERR_PREFIX = 'ERR: ';
@@ -60,7 +60,7 @@ const server = net.createServer(async (socket) => {
     let req, command;
     while (true) {
         try {
-            req = await from_resp(fread);
+            req = await fromResp(fread);
         } catch (e) {
             console.log(e.message);
             break;
@@ -69,16 +69,16 @@ const server = net.createServer(async (socket) => {
             command = commandGrammar.parse(req);
         } catch (e) {
             console.log(e);
-            socket.write(to_resp(new Error(ERR_PREFIX + 'Syntax error!')));
+            socket.write(toResp(new Error(ERR_PREFIX + 'Syntax error!')));
             continue;
         }
         try {
-            socket.write(to_resp(await actions[command.action].call.apply(null, [command])));
+            socket.write(toResp(await actions[command.action].call.apply(null, [command])));
         } catch (e) {
             if (e.message.indexOf(ERR_PREFIX) === 0) {
-                socket.write(to_resp(e));
+                socket.write(toResp(e));
             } else {
-                socket.write(to_resp(new Error(ERR_PREFIX + 'Internal error!')));
+                socket.write(toResp(new Error(ERR_PREFIX + 'Internal error!')));
             }
         }
 

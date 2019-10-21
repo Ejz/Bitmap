@@ -19,7 +19,7 @@ function toResp(message) {
     if (Array.isArray(message)) {
         resp.push('*' + message.length + CRLF);
         message.forEach((message) => {
-            resp.push(to_resp(message));
+            resp.push(toResp(message));
         });
     } else if (typeof(message) === 'number') {
         resp.push(':' + message + CRLF);
@@ -64,7 +64,7 @@ async function fromResp(fread) {
         let count = parseInt(result);
         result = [];
         for (let i = 0; i < count; i++) {
-            result.push(await from_resp(fread));
+            result.push(await fromResp(fread));
         }
         return result;
     }
@@ -83,6 +83,4 @@ module.exports = {
     rand,
     toResp,
     fromResp,
-    to_resp: toResp,
-    from_resp: fromResp,
 };

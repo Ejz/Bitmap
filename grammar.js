@@ -9,18 +9,20 @@ function clog() {
 const queryGrammar = {
     lex: {
         rules: [
-           ['[0-9]+\\b', 'return "INTEGER";'],
-           ['\\s+', '/* */'],
-           ['@[a-zA-Z_][a-zA-Z0-9_]*\\b', 'return "IDENT";'],
-           ['\\*', 'return "*";'],
-           ['\\|', 'return "|";'],
-           ['\\(', 'return "(";'],
-           ['\\)', 'return ")";'],
-           ['&', 'return "&";'],
-           ['-', 'return "-";'],
-           [':', 'return ":";'],
-           ['[a-zA-Z0-9_\\.]+', 'return "VALUE";'],
-           ['$', 'return "EOF";'],
+            ['([+-]\\s*)?[0-9]+\\b', 'return "INTEGER";'],
+            ['\\s+', '/* */'],
+            ['@[a-zA-Z_][a-zA-Z0-9_]*\\b', 'return "IDENT";'],
+            ['\\*', 'return "*";'],
+            ['\\|', 'return "|";'],
+            ['\\(', 'return "(";'],
+            ['\\)', 'return ")";'],
+            // ['\\[', 'return "[";'],
+            // ['\\]', 'return "]";'],
+            ['&', 'return "&";'],
+            ['-', 'return "-";'],
+            [':', 'return ":";'],
+            ['[a-zA-Z0-9_\\.]+', 'return "VALUE";'],
+            ['$', 'return "EOF";'],
         ],
     },
     operators: [
@@ -34,12 +36,12 @@ const queryGrammar = {
         ],
         e: [
             ['( e )', '$$ = $2'],
-            ['IDENT : values', '$$ = {field: $1.substring(1), values: $3}'],
+            ['IDENT : values', '$$ = {field: $1.substring(1).toLowerCase(), values: $3}'],
             ['values', '$$ = {values: $1}'],
-            ['e & e', '$$ = {op: "&", queries: [$1, $3]}'],
+            ['e & e', '$$ = {op: $2, queries: [$1, $3]}'],
             ['e e', '$$ = {op: "&", queries: [$1, $2]}'],
-            ['e | e', '$$ = {op: "|", queries: [$1, $3]}'],
-            ['- e', '$$ = {op: "-", queries: [$2]}'],
+            ['e | e', '$$ = {op: $2, queries: [$1, $3]}'],
+            ['- e', '$$ = {op: $1, queries: [$2]}'],
         ],
         values: [
             ['value', '$$ = [$1]'],
@@ -52,29 +54,10 @@ const queryGrammar = {
         value: [
             ['( value )', '$$ = $2'],
             ['INTEGER', '$$ = $1'],
+            ['[ INTEGER INTEGER ]', '$$ = [$2 $3]'],
             ['VALUE', '$$ = $1'],
             ['*', '$$ = $1'],
         ],
-        // expressions: [
-        //     ['query operand term', ''],
-        //     ['query term', ''],
-        //     ['term', ''],
-        // ],
-        // term: [
-        //     ['( term )', ''],
-        //     ['@ IDENT : value', ''],
-        //     ['value', ''],
-        // ],
-        // value: [
-        //     ['*', ''],
-        //     ['INTEGER', '$$ = $1'],
-        //     ['IDENT', '$$ = $1'],
-        //     ['VALUE', '$$ = $1'],
-        // ],
-        // operand: [
-        //     ['&', ''],
-        //     ['|', ''],
-        // ],
     },
 };
 
@@ -98,21 +81,25 @@ const commandGrammar = {
             ['INTEGER', '$$ = $1'],
             ['IDENT', '$$ = $1'],
             ['VALUE', '$$ = $1'],
+            ['KW_TRUE', '$$ = true'],
+            ['KW_FALSE', '$$ = false'],
         ],
         fields: [
             ['fields field', '$$ = $1.concat($2)'],
             ['field', '$$ = [$1]'],
         ],
         field: [
-            ['IDENT type min_max', '$$ = {field: $1, type: $2, min: $3 && $3[0], max: $3 && $3[1]}'],
+            ['IDENT type', '$$ = {field: $1, ...$2}'],
         ],
         type: [
-            ['KW_STRING', '$$ = $1'],
-            ['KW_ENUM', '$$ = $1'],
+            ['KW_STRING', '$$ = {type: "STRING"}'],
+            ['KW_ENUM ( enums )', '$$ = {type: "ENUM", enums: $3}'],
+            ['KW_BOOLEAN', '$$ = {type: "BOOLEAN"}'],
+            ['KW_INTEGER KW_MIN INTEGER KW_MAX INTEGER', '$$ = {type: "INTEGER", min: $3, max: $5}'],
         ],
-        min_max: [
-            ['', ''],
-            ['KW_MIN INTEGER KW_MAX INTEGER', '$$ = [$2, $4]'],
+        enums: [
+            ['value', '$$ = [$1]'],
+            ['enums value', '$$ = $1.concat($2)'],
         ],
         limit: [
             ['', ''],
@@ -123,11 +110,12 @@ const commandGrammar = {
 
 const lexerKeywords = [
     'PING', 'CREATE', 'DROP', 'ADD', 'DELETE', 'FIELDS',
-    'SCHEMA', 'SEARCH', 'LIMIT',
+    'SCHEMA', 'SEARCH', 'LIMIT', 'ENUM',
     'STRING', 'INTEGER', 'MIN', 'MAX',
+    'TRUE', 'FALSE', 'BOOLEAN',
 ];
 const lexerIdentRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-const lexerIntegerRegex = /^\d+$/;
+const lexerIntegerRegex = /^([+-]\s*)?\d+$/;
 
 function RespLexer() {
     let text = [];
@@ -156,6 +144,9 @@ function RespLexer() {
         if (lexerKeywords.includes(t.toUpperCase())) {
             this.yytext = t.toUpperCase();
             return 'KW_' + t.toUpperCase();
+        }
+        if (~['(', ')'].indexOf(t)) {
+            return t;
         }
         if (lexerIdentRegex.test(t)) {
             this.yytext = t.toLowerCase();

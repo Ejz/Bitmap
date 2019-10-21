@@ -12,14 +12,26 @@ test('grammar - command - create', () => {
     ]);
     expect(cmd['action']).toBe('CREATE');
     expect(cmd['index']).toBe('index');
-    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'STRING', min: undefined, max: undefined});
-    expect(cmd['fields'][1]).toStrictEqual({field: 'f2', type: 'STRING', min: undefined, max: undefined});
+    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'STRING'});
+    expect(cmd['fields'][1]).toStrictEqual({field: 'f2', type: 'STRING'});
     //
     cmd = command.parse([
         'CREATe', 'Index', 'SCHEMA',
-        'f1', 'String', 'min', 2, 'max', 4
+        'f1', 'String',
     ]);
-    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'STRING', min: 2, max: 4});
+    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'STRING'});
+    //
+    cmd = command.parse([
+        'CREATe', 'Index', 'SCHEMA',
+        'f1', 'integer', 'min', 1, 'max', 2,
+    ]);
+    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'INTEGER', min: 1, max: 2});
+    //
+    cmd = command.parse([
+        'CREATe', 'Index', 'SCHEMA',
+        'f1', 'enum', '(', '+1', 'foo', ')',
+    ]);
+    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'ENUM', enums: [1, 'foo']});
 });
 
 test('grammar - command - add', () => {

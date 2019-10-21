@@ -16,12 +16,27 @@ const ERR_PREFIX = 'ERR: ';
 function createIndex({index, fields}) {
     return new Promise((resolve, reject) => {
         if (storage[index]) {
-            return reject(new Error('ERR: Index ALREADY exists: ' + index));
+            return reject(new Error(ERR_PREFIX + 'Index ALREADY exists: ' + index));
+        }
+        if ((new Set(fields.map((f) => f.field))).size != fields.length) {
+            return reject(new Error(ERR_PREFIX + 'Duplicate columns: ' + index));
         }
         let f = {};
-        fields.forEach((field) => {
-            f[field.field] = {type: field.type, bitmaps: {}};
-        });
+        for (const {field, type, enums, min, max} of fields) {
+            let bitmaps = {};
+            if (type === 'INTEGER') {
+                for (let i = min; i <= max; i++) {
+                    bitmaps[i] = new RoaringBitmap32([]);
+                }
+            }
+            f[field] = {
+                type,
+                bitmaps,
+                ...(enums !== undefined ? {enums} : {}),
+                ...(min !== undefined ? {min} : {}),
+                ...(max !== undefined ? {max} : {}),
+            };
+        }
         fields = f;
         let ids = new RoaringBitmap32([]);
         storage[index] = {fields, ids};
@@ -32,39 +47,51 @@ function createIndex({index, fields}) {
 function addRecordToIndex({index, id, values}) {
     return new Promise((resolve, reject) => {
         if (!storage[index]) {
-            return reject(new Error('ERR: Index NOT exist: ' + index));
+            return reject(new Error(ERR_PREFIX + 'Index NOT exist: ' + index));
         }
         let {fields, ids} = storage[index];
         if (ids.has(id)) {
-            return reject(new Error('ERR: ID ALREADY exists: ' + id));
+            return reject(new Error(ERR_PREFIX + 'ID ALREADY exists: ' + id));
         }
+        if (id < 1) {
+            return reject(new Error(ERR_PREFIX + 'ID is NEGATIVE or ZERO: ' + id));
+        }
+        if ((new Set(values.map((v) => v.field))).size != values.length) {
+            return reject(new Error(ERR_PREFIX + 'Duplicate columns: ' + index));
+        }
+        let available = Object.keys(fields);
+        for (const {value, field} of values) {
+            if (!available.includes(field)) {
+                return reject(new Error(ERR_PREFIX + 'Column NOT exist: ' + field));
+            }
+            let {type, bitmaps, enums, min, max} = fields[field];
+            let invalid = ERR_PREFIX + 'Invalid ' + type + ' value: ' + value;
+            if (type === 'INTEGER') {
+                if (value > max || value < min) {
+                    return reject(new Error(invalid));
+                }
+                for (let i = value; i <= max; i++) {
+                    bitmaps[i].add(id);
+                }
+            } else if (type === 'ENUM') {
+                if (!fields[field].enums.includes(value)) {
+                    return reject(new Error(invalid));
+                }
+            } else if (type === 'BOOLEAN') {
+                if (![true, false, 0, 1].includes(value)) {
+                    return reject(new Error(invalid));
+                }
+            } else if (type === 'STRING') {
+                let digest = md5(value);
+                if (!bitmaps[digest]) {
+                    bitmaps[digest] = new RoaringBitmap32([]);
+                }
+                bitmaps[digest].add(id);
+            }
+        }
+        ids.add(id);
         storage[index].min = Math.min(...[id, storage[index].min].filter(Number));
         storage[index].max = Math.max(...[id, storage[index].max].filter(Number));
-        ids.add(id);
-        let available = Object.keys(fields);
-        let v = {};
-        values.forEach((value) => {
-            v[value.field] = value.value;
-        });
-        values = v;
-        v = Object.keys(values);
-        let found = v.find((field) => !available.includes(field));
-        if (found) {
-            return reject(new Error('ERR: Column NOT exist: ' + found));
-        }
-        if (v.length !== available.length) {
-            return reject(new Error('ERR: Specify ALL columns: ' + index));
-        }
-        Object.entries(values).forEach(([field, value]) => {
-            let bitmaps = fields[field].bitmaps;
-            field = fields[field];
-            let digest = md5(value);
-            if (!bitmaps[digest]) {
-                bitmaps[digest] = new RoaringBitmap32([]);
-            }
-            console.log(value, id)
-            bitmaps[digest].add(id);
-        });
         return resolve('ADDED');
     });
 }
@@ -93,25 +120,24 @@ function getBitmap(index, query) {
     if (query.values) {
         let {values, field} = query;
         if (values.length > 1) {
-            let queries = [];
-            values.forEach((value) => {
-                queries.push({values: [value], field});
-            });
+            let queries = values.map((v) => ({values: [v], field}));
             return getOrBitmap(index, queries);
         }
-        let f;
-        if (field) {
-            field = field.toLowerCase();
-            f = storage[index].fields[field];
-            if (!f) {
-                throw ERR_PREFIX + 'Column NOT exist: ' + f;
-            }
+        if (field && !storage[index].fields[field]) {
+            throw ERR_PREFIX + 'Column NOT exist: ' + field;
         }
-        let value = values[0];
+        let [value] = values;
         if (value === '*') {
             return storage[index].ids;
         }
-        return f.bitmaps[md5(value)] || new RoaringBitmap32();
+        let {type, bitmaps, enums, min, max} = storage[index].fields[field];
+        if (type === 'STRING') {
+            return bitmaps[md5(value)] || new RoaringBitmap32();
+        }
+        if (type === 'INTEGER') {
+            let [from, to] = value;
+            return RoaringBitmap32.andNot(bitmaps[from], bitmaps[to]);
+        }
     }
     let {op, queries} = query;
     op = op || '&';

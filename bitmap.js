@@ -25,12 +25,12 @@ function createIndex({index, fields}) {
                 if (max < min) {
                     return reject(new Error(ERR_PREFIX + 'Invalid MIN or MAX: ' + field));
                 }
-                for (let i = min; i <= max; i++) {
-                    bitmaps['_' + i] = new RoaringBitmap32([]);
+                let zmax = max - min;
+                for (let i = 0; i <= zmax; i++) {
+                    bitmaps[i] = new RoaringBitmap32([]);
                 }
                 if (sortable) {
-                    sortmap = getSortMap(max - min + 1);
-                    console.log(sortmap)
+                    sortmap = getSortMap(zmax + 1);
                 }
             }
             f[field] = {
@@ -66,7 +66,7 @@ function addRecordToIndex({index, id, values}) {
             return reject(new Error(ERR_PREFIX + 'Duplicate columns: ' + index));
         }
         let available = Object.keys(fields);
-        for (const {value, field} of values) {
+        for (let {value, field} of values) {
             if (!available.includes(field)) {
                 return reject(new Error(ERR_PREFIX + 'Column NOT exist: ' + field));
             }
@@ -76,14 +76,16 @@ function addRecordToIndex({index, id, values}) {
                 if (value > max || value < min) {
                     return reject(new Error(invalid));
                 }
+                value -= min;
+                max -= min;
+                min = 0;
                 if (sortable) {
-                    for (let i of getSortSlices(max - min + 1, value)) {
-                        console.log(`sortmap.bitmaps[${i}].add(${id});`)
+                    for (let i of getSortSlices(max + 1, value)) {
                         sortmap.bitmaps[i].add(id);
                     }
                 }
                 for (let i = value; i <= max; i++) {
-                    bitmaps['_' + i].add(id);
+                    bitmaps[i].add(id);
                 }
             } else if (type === 'ENUM') {
                 if (!fields[field].enums.includes(value)) {
@@ -131,7 +133,7 @@ function getSortMap(card) {
                 tree[shift].set(_, new Map(map));
             }
         }
-        card = Math.floor((card + 1) / div);
+        card = Math.floor((card - 1) / div);
         shift++;
     } while (card);
     let _ = {};
@@ -145,9 +147,9 @@ function getSortSlices(card, value) {
     let slices = [];
     do {
         slices.push(value + 'x'.repeat(shift))
-        card = Math.floor((card + 1) / div);
+        card = Math.floor((card - 1) / div);
         shift++;
-        value = Math.floor((value) / div);
+        value = Math.floor(value / div);
     } while (card);
     return slices;
 }
@@ -167,11 +169,11 @@ function searchIndex({index, query, limit, sortby}) {
         }
         limit = limit || 100;
         query = queryGrammar.parse(query);
-        console.log(query)
         let iterator;
         let bitmap = getBitmap(index, query);
         if (sortby) {
-            iterator = getSortIterator(index, sortby, bitmap.iterator());
+            let {map, bitmaps} = storage[index].fields[sortby].sortmap;
+            iterator = getSortIterator(map, bitmaps, bitmap);
         } else {
             iterator = bitmap.iterator();
         }
@@ -187,8 +189,15 @@ function searchIndex({index, query, limit, sortby}) {
     });
 }
 
-function getSortIterator(index, field, iterator) {
-
+function* getSortIterator(map, bitmaps, bitmap) {
+    for (let [k, v] of map.entries()) {
+        let and = RoaringBitmap32.and(bitmaps[k], bitmap);
+        if (v === null) {
+            yield* and.iterator();
+        } else if (and.size) {
+            yield* getSortIterator(v, bitmaps, bitmap);
+        }
+    }
 }
 
 function getBitmap(index, query) {
@@ -221,19 +230,14 @@ function getBitmap(index, query) {
             }
             from = from < min ? min : from;
             to = to > max ? max : to;
-            if (to == min) {
-                return bitmaps['_' + to];
+            to -= min;
+            from -= min;
+            max -= min;
+            min = 0;
+            if ((to == 0) || (from == 0 && to == max)) {
+                return bitmaps[to];
             }
-            if (from == min && to == max) {
-                return bitmaps['_' + to];
-            }
-            // if (from == )
-            // console.log(bitmaps)
-            // console.log('_' + from, '_' + (to - 1));
-            // console.log(RoaringBitmap32.andNot(bitmaps[from], bitmaps[to + 1]).toArray());
-            // console.log(bitmaps['_' + from].toArray());
-            // console.log(bitmaps['_' + (to - 1)].toArray());
-            return RoaringBitmap32.andNot(bitmaps['_' + to], bitmaps['_' + (from - 1)]);
+            return RoaringBitmap32.andNot(bitmaps[to], bitmaps[from - 1]);
         }
     }
     let {op, queries} = query;
@@ -280,7 +284,6 @@ function getNotBitmap(index, [query]) {
     }
     let bitmap = new RoaringBitmap32(query);
     let {min, max} = storage[index];
-    console.log(min, max);
     bitmap.flipRange(min, max + 1);
     return bitmap;
 }
@@ -288,7 +291,7 @@ function getNotBitmap(index, [query]) {
 function dropIndex({index}) {
     return new Promise((resolve, reject) => {
         if (!storage[index]) {
-            return reject(new Error('ERR: Index NOT exist: ' + index));
+            return reject(new Error(ERR_PREFIX + 'Index NOT exist: ' + index));
         }
         delete storage[index];
         return resolve('DROPPED');

@@ -1,8 +1,13 @@
 const crypto = require('crypto');
+const snowball = require('node-snowball');
 
 const CR = '\r';
 const LF = '\n';
 const CRLF = CR + LF;
+
+function stem(word) {
+    return word.split(/\W+/).filter(w => w.length).map(w => snowball.stemword(w.toLowerCase()));
+}
 
 function md5(string) {
     return crypto.createHash('md5').update(string).digest('hex');
@@ -12,6 +17,10 @@ function rand(min, max) {
     min = parseInt(min);
     max = parseInt(max);
     return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function generateHex() {
+    return Math.floor(Math.random() * Math.pow(2, 32)).toString(16).toUpperCase();
 }
 
 function toResp(message) {
@@ -79,8 +88,10 @@ function to(promise) {
 
 module.exports = {
     to,
+    generateHex,
     md5,
     rand,
     toResp,
     fromResp,
+    stem,
 };

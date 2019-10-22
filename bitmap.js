@@ -3,11 +3,15 @@ const RoaringBitmap32Iterator = require('roaring/RoaringBitmap32Iterator');
 const grammar = require('./grammar');
 const helpers = require('./helpers');
 const storage = {};
+const cursors = {};
 
 const queryGrammar = new grammar.Query();
 
 const ERR_PREFIX = 'ERR: ';
 const md5 = helpers.md5;
+const generateHex = helpers.generateHex;
+const stem = helpers.stem;
+
 
 function createIndex({index, fields}) {
     return new Promise((resolve, reject) => {
@@ -101,6 +105,13 @@ function addRecordToIndex({index, id, values}) {
                     bitmaps[digest] = new RoaringBitmap32([]);
                 }
                 bitmaps[digest].add(id);
+            } else if (type === 'FULLTEXT') {
+                for (let v of stem(value)) {
+                    if (!bitmaps[v]) {
+                        bitmaps[v] = new RoaringBitmap32([]);
+                    }
+                    bitmaps[v].add(id);
+                }
             }
         }
         ids.add(id);
@@ -167,7 +178,12 @@ function searchIndex({index, query, limit, sortby}) {
         ) {
             return reject(new Error(ERR_PREFIX + 'Column NOT sortable: ' + sortby));
         }
-        limit = limit || 100;
+        let [off, lim] = limit || [0, 100];
+        let cursor = off == 'CURSOR' ? generateHex() : false;
+        off = cursor ? 0 : off;
+        if (off < 0 || lim < 0) {
+            return reject(new Error(ERR_PREFIX + 'Invalid LIMIT values!'));
+        }
         query = queryGrammar.parse(query);
         let iterator;
         let bitmap = getBitmap(index, query);
@@ -177,8 +193,50 @@ function searchIndex({index, query, limit, sortby}) {
         } else {
             iterator = bitmap.iterator();
         }
-        let ret = [];
-        for (let i = 0; i < limit; i++) {
+        let ret = [bitmap.size];
+        if (cursor) {
+            cursor = ret[0] > lim ? cursor : null;
+            ret.push(cursor);
+            if (cursor) {
+                cursors[cursor] = {size: ret[0], iterator, lim, off: lim};
+                cursors[cursor].tid = setTimeout(() => {
+                    delete cursors[cursor];
+                }, 1000 * 30);
+            }
+        }
+        for (let i = 0; i < off + lim; i++) {
+            let {value, done} = iterator.next();
+            if (done) {
+                break;
+            }
+            if (off <= i) {
+                ret.push(value);
+            }
+        }
+        return resolve(ret);
+    });
+}
+
+function cursor({cursor}) {
+    return new Promise((resolve, reject) => {
+        if (!cursors[cursor]) {
+            return reject(new Error(ERR_PREFIX + 'Cursor NOT exist: ' + cursor));
+        }
+        let cur = cursor;
+        let {tid, size, lim, iterator, off} = cursors[cursor];
+        clearTimeout(tid);
+        let ret = [size];
+        cursor = (size > lim + off) ? cursor : null;
+        ret.push(cursor);
+        if (cursor) {
+            cursors[cursor] = {size, iterator, lim, off: lim + off};
+            cursors[cursor].tid = setTimeout(() => {
+                delete cursors[cursor];
+            }, 1000 * 30);
+        } else {
+            delete cursors[cur];
+        }
+        for (let i = 0; i < lim; i++) {
             let {value, done} = iterator.next();
             if (done) {
                 break;
@@ -214,9 +272,30 @@ function getBitmap(index, query) {
         if (value === '*') {
             return storage[index].ids;
         }
+        if (!field) {
+            let fields = Object.entries(storage[index].fields);
+            fields = fields.filter(([k, v]) => ['FULLTEXT'].includes(v.type));
+            fields = fields.map(([k, v]) => k);
+            if (!fields.length) {
+                return new RoaringBitmap32();
+            }
+            let queries = fields.map((field) => ({values, field}));
+            return getOrBitmap(index, queries);
+        }
         let {type, bitmaps, enums, min, max} = storage[index].fields[field];
         if (type === 'STRING') {
             return bitmaps[md5(value)] || new RoaringBitmap32();
+        }
+        if (type === 'FULLTEXT') {
+            let words = Array.isArray(value) ? value : stem(value);
+            if (!words.length) {
+                return new RoaringBitmap32();
+            }
+            if (words.length == 1) {
+                return bitmaps[words[0]] || new RoaringBitmap32();
+            }
+            let queries = words.map((v) => ({values: [v], field}));
+            return getAndBitmap(index, queries);
         }
         if (type === 'INTEGER') {
             if (!Array.isArray(value)) {
@@ -301,6 +380,7 @@ function dropIndex({index}) {
 module.exports = {
     createIndex,
     dropIndex,
+    cursor,
     addRecordToIndex,
     searchIndex,
     getSortMap,

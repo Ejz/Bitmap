@@ -103,6 +103,9 @@ const commandGrammar = {
         ],
         type: [
             ['KW_STRING', '$$ = {type: "STRING"}'],
+            ['KW_FULLTEXT', '$$ = {type: "FULLTEXT"}'],
+            ['KW_INTEGERS', '$$ = {type: "INTEGERS"}'],
+            ['KW_STRINGS', '$$ = {type: "STRINGS"}'],
             ['KW_ENUM ( enums )', '$$ = {type: "ENUM", enums: $3}'],
             ['KW_BOOLEAN', '$$ = {type: "BOOLEAN"}'],
             ['KW_INTEGER KW_MIN INTEGER KW_MAX INTEGER sortable', '$$ = {type: "INTEGER", min: $3, max: $5, sortable: $6}'],
@@ -116,8 +119,10 @@ const commandGrammar = {
             ['enums value', '$$ = $1.concat($2)'],
         ],
         limit: [
-            ['', ''],
-            ['KW_LIMIT INTEGER', '$$ = $2'],
+            ['', '$$ = [0, 100]'],
+            ['KW_CURSOR INTEGER', '$$ = ["CURSOR", $2]'],
+            ['KW_LIMIT INTEGER', '$$ = [0, $2]'],
+            ['KW_LIMIT INTEGER , INTEGER', '$$ = [$2, $4]'],
         ],
     },
 };
@@ -127,6 +132,7 @@ const lexerKeywords = [
     'SCHEMA', 'SEARCH', 'LIMIT', 'ENUM',
     'STRING', 'INTEGER', 'MIN', 'MAX',
     'TRUE', 'FALSE', 'BOOLEAN', 'SORTABLE',
+    'CURSOR', 'FULLTEXT', 'INTEGERS', 'STRINGS',
 ];
 const lexerIdentRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const lexerIntegerRegex = /^([+-]\s*)?\d+$/;
@@ -159,7 +165,7 @@ function RespLexer() {
             this.yytext = t.toUpperCase();
             return 'KW_' + t.toUpperCase();
         }
-        if (~['(', ')'].indexOf(t)) {
+        if (~['(', ')', ','].indexOf(t)) {
             return t;
         }
         if (lexerIdentRegex.test(t)) {

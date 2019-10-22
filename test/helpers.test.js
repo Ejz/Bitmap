@@ -23,3 +23,15 @@ test('rand', () => {
     expect(helpers.rand(1, 1)).toBe(1);
     expect(helpers.rand(-1, -1)).toBe(-1);
 });
+
+test('generateHex', () => {
+    expect(/^[A-F0-9]+$/.test(helpers.generateHex())).toBe(true);
+});
+
+test('stem', () => {
+    expect(helpers.stem('Hello Worlds')).toStrictEqual(['hello', 'world']);
+    expect(helpers.stem(' Girls ')).toStrictEqual(['girl']);
+    expect(helpers.stem('  ')).toStrictEqual([]);
+    expect(helpers.stem(' - ')).toStrictEqual([]);
+    expect(helpers.stem('i\'m ok')).toStrictEqual(['i', 'm', 'ok']);
+});

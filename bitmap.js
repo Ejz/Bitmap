@@ -18,19 +18,29 @@ function createIndex({index, fields}) {
             return reject(new Error(ERR_PREFIX + 'Duplicate columns: ' + index));
         }
         let f = {};
-        for (const {field, type, enums, min, max} of fields) {
+        for (const {field, type, enums, min, max, sortable} of fields) {
             let bitmaps = {};
+            let sortmap;
             if (type === 'INTEGER') {
+                if (max < min) {
+                    return reject(new Error(ERR_PREFIX + 'Invalid MIN or MAX: ' + field));
+                }
                 for (let i = min; i <= max; i++) {
                     bitmaps['_' + i] = new RoaringBitmap32([]);
+                }
+                if (sortable) {
+                    sortmap = getSortMap(max - min + 1);
+                    console.log(sortmap)
                 }
             }
             f[field] = {
                 type,
                 bitmaps,
+                sortable: !!sortable,
                 ...(enums !== undefined ? {enums} : {}),
                 ...(min !== undefined ? {min} : {}),
                 ...(max !== undefined ? {max} : {}),
+                ...(sortmap !== undefined ? {sortmap} : {}),
             };
         }
         fields = f;
@@ -60,11 +70,17 @@ function addRecordToIndex({index, id, values}) {
             if (!available.includes(field)) {
                 return reject(new Error(ERR_PREFIX + 'Column NOT exist: ' + field));
             }
-            let {type, bitmaps, enums, min, max} = fields[field];
+            let {type, bitmaps, enums, min, max, sortable, sortmap} = fields[field];
             let invalid = ERR_PREFIX + 'Invalid ' + type + ' value: ' + value;
             if (type === 'INTEGER') {
                 if (value > max || value < min) {
                     return reject(new Error(invalid));
+                }
+                if (sortable) {
+                    for (let i of getSortSlices(max - min + 1, value)) {
+                        console.log(`sortmap.bitmaps[${i}].add(${id});`)
+                        sortmap.bitmaps[i].add(id);
+                    }
                 }
                 for (let i = value; i <= max; i++) {
                     bitmaps['_' + i].add(id);
@@ -92,15 +108,73 @@ function addRecordToIndex({index, id, values}) {
     });
 }
 
-function searchIndex({index, query, limit}) {
+function getSortMap(card) {
+    let all = [];
+    let shift = 0;
+    let div = 10;
+    let tree = [];
+    do {
+        tree[shift] = new Map();
+        for (let i = 0; i < (shift ? card + 1 : card); i++) {
+            let _ = i + 'x'.repeat(shift);
+            all.push(_);
+            tree[shift].set(_, null);
+            if (shift) {
+                let regex = new RegExp('^' + _.replace(/^0+/, '').replace('x', '\\d') + '$');
+                let map = all.filter((a) => regex.test(a)).map((a) => {
+                    let v = null;
+                    if (tree[shift - 1] && tree[shift - 1].has(a)) {
+                        v = tree[shift - 1].get(a);
+                    }
+                    return [a, v];
+                });
+                tree[shift].set(_, new Map(map));
+            }
+        }
+        card = Math.floor((card + 1) / div);
+        shift++;
+    } while (card);
+    let _ = {};
+    all.forEach(e => _[e] = new RoaringBitmap32());
+    return {map: tree[shift - 1], bitmaps: _};
+}
+
+function getSortSlices(card, value) {
+    let shift = 0;
+    let div = 10;
+    let slices = [];
+    do {
+        slices.push(value + 'x'.repeat(shift))
+        card = Math.floor((card + 1) / div);
+        shift++;
+        value = Math.floor((value) / div);
+    } while (card);
+    return slices;
+}
+
+function searchIndex({index, query, limit, sortby}) {
     return new Promise((resolve, reject) => {
         if (!storage[index]) {
-            return reject(new Error('ERR: Index NOT exist: ' + index));
+            return reject(new Error(ERR_PREFIX + 'Index NOT exist: ' + index));
+        }
+        if (
+            sortby && (
+                !storage[index].fields[sortby] ||
+                !storage[index].fields[sortby].sortable
+            )
+        ) {
+            return reject(new Error(ERR_PREFIX + 'Column NOT sortable: ' + sortby));
         }
         limit = limit || 100;
         query = queryGrammar.parse(query);
         console.log(query)
-        let iterator = getBitmap(index, query).iterator();
+        let iterator;
+        let bitmap = getBitmap(index, query);
+        if (sortby) {
+            iterator = getSortIterator(index, sortby, bitmap.iterator());
+        } else {
+            iterator = bitmap.iterator();
+        }
         let ret = [];
         for (let i = 0; i < limit; i++) {
             let {value, done} = iterator.next();
@@ -111,6 +185,10 @@ function searchIndex({index, query, limit}) {
         }
         return resolve(ret);
     });
+}
+
+function getSortIterator(index, field, iterator) {
+
 }
 
 function getBitmap(index, query) {
@@ -222,4 +300,6 @@ module.exports = {
     dropIndex,
     addRecordToIndex,
     searchIndex,
+    getSortMap,
+    getSortSlices,
 };

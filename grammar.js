@@ -23,7 +23,7 @@ const queryGrammar = {
             ['-', 'return "-";'],
             [':', 'return ":";'],
             [',', 'return ",";'],
-            ['[a-zA-Z0-9_\\.]+', 'console.log(1); return "VALUE";'],
+            ['[a-zA-Z0-9_\\.]+', 'return "VALUE";'],
             ['$', 'return "EOF";'],
         ],
     },
@@ -105,7 +105,11 @@ const commandGrammar = {
             ['KW_STRING', '$$ = {type: "STRING"}'],
             ['KW_ENUM ( enums )', '$$ = {type: "ENUM", enums: $3}'],
             ['KW_BOOLEAN', '$$ = {type: "BOOLEAN"}'],
-            ['KW_INTEGER KW_MIN INTEGER KW_MAX INTEGER', '$$ = {type: "INTEGER", min: $3, max: $5}'],
+            ['KW_INTEGER KW_MIN INTEGER KW_MAX INTEGER sortable', '$$ = {type: "INTEGER", min: $3, max: $5, sortable: $6}'],
+        ],
+        sortable: [
+            ['', ''],
+            ['KW_SORTABLE', '$$ = true'],
         ],
         enums: [
             ['value', '$$ = [$1]'],
@@ -122,7 +126,7 @@ const lexerKeywords = [
     'PING', 'CREATE', 'DROP', 'ADD', 'DELETE', 'FIELDS',
     'SCHEMA', 'SEARCH', 'LIMIT', 'ENUM',
     'STRING', 'INTEGER', 'MIN', 'MAX',
-    'TRUE', 'FALSE', 'BOOLEAN',
+    'TRUE', 'FALSE', 'BOOLEAN', 'SORTABLE',
 ];
 const lexerIdentRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 const lexerIntegerRegex = /^([+-]\s*)?\d+$/;

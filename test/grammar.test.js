@@ -24,7 +24,7 @@ test('grammar - command - create', () => {
         'CREATe', 'Index', 'SCHEMA',
         'f1', 'integer', 'min', 1, 'max', 2,
     ]);
-    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'INTEGER', min: 1, max: 2});
+    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'INTEGER', min: 1, max: 2, sortable: undefined});
     //
     cmd = command.parse([
         'CREATe', 'Index', 'SCHEMA',

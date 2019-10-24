@@ -1,34 +1,22 @@
+const helpers = require('../helpers');
 const server = require('../server');
 const Client = require('../client');
+const C = require('../constants');
+const sprintf = require('util').format;
 
-test('server - errors', async () => {
-    let port = 2000 + Math.round(1000 * Math.random());
-    server.listen(port);
-    let client = new Client(port);
-    let msg;
-    try {
-        await client.send([]);
-    } catch (e) {
-        msg = e.message;
-    }
-    expect(msg).toContain('Syntax error');
-    client.end();
-    await new Promise((resolve, reject) => {
-        setTimeout(() => {
-            server.close();
-            resolve();
-        }, 1000);
-    });
-});
+const to = helpers.to;
 
 test('server - ping', async () => {
+    let res, err;
     let port = 2000 + Math.round(1000 * Math.random());
     server.listen(port);
     let client = new Client(port);
-    let res = await client.send(['PING']);
-    expect(res).toBe('PONG');
-    res = await client.send(['PING']);
-    expect(res).toBe('PONG');
+    [res, err] = await to(client.send([]));
+    expect(res).toBe(null);
+    expect(err).toMatch(C.INVALID_ACTION_ERROR);
+    [res, err] = await to(client.send(['PING']));
+    expect(res).toMatch(C.PING_SUCCESS);
+    expect(err).toBe(null);
     client.end();
     await new Promise((resolve, reject) => {
         setTimeout(() => {
@@ -42,22 +30,16 @@ test('server - index', async () => {
     let port = 2000 + Math.round(1000 * Math.random());
     server.listen(port);
     let client = new Client(port);
-    let res = await client.send(`
-        create index schema f1 string
-    `.split(/\s+/).filter(Boolean));
-    expect(res).toBe('CREATED');
-    try {
-        res = await client.send(`
-            create index schema f1 string
-        `.split(/\s+/).filter(Boolean));
-    } catch (e) {
-        res = e.message;
-    }
-    expect(res).toContain('Index ALREADY exists');
-    res = await client.send(`
-        drop index
-    `.split(/\s+/).filter(Boolean));
-    expect(res).toBe('DROPPED');
+    let res, err;
+    let _ = _ => _.split(/\s+/).filter(Boolean);
+    [res] = await to(client.send(_('create index1')));
+    expect(res).toBe(C.CREATE_SUCCESS);
+    [, err] = await to(client.send(_('create index1')));
+    expect(err).toBe(sprintf(C.INDEX_EXISTS_ERROR, 'index1'));
+    [, err] = await to(client.send(_('drop index2')));
+    expect(err).toBe(sprintf(C.INDEX_NOT_EXISTS_ERROR, 'index2'));
+    [res] = await to(client.send(_('drop index1')));
+    expect(res).toBe(C.DROP_SUCCESS);
     client.end();
     await new Promise((resolve, reject) => {
         setTimeout(() => {

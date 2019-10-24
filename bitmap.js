@@ -1,123 +1,192 @@
-const RoaringBitmap32 = require('roaring/RoaringBitmap32');
-const RoaringBitmap32Iterator = require('roaring/RoaringBitmap32Iterator');
-const grammar = require('./grammar');
+const RoaringBitmap = require('roaring/RoaringBitmap32');
+const RoaringBitmapIterator = require('roaring/RoaringBitmap32Iterator');
 const helpers = require('./helpers');
+const Grammar = require('./grammar');
+const C = require('./constants');
+const sprintf = require('util').format;
+
+const generateHex = helpers.generateHex;
+const stem = helpers.stem;
+const isUnique = helpers.isUnique;
+const grammar = new Grammar();
+
+module.exports = {
+    PING,
+    CREATE,
+    DROP,
+    ADD,
+    execute,
+    getSortMap,
+    getSortSlices,
+};
+
 const storage = {};
 const cursors = {};
 
-const queryGrammar = new grammar.Query();
+function hex() {
+    let _;
+    do {
+        _ = generateHex();
+    } while (Number(_.substring(0, 1)));
+    return _;
+}
 
-const ERR_PREFIX = 'ERR: ';
-const md5 = helpers.md5;
-const generateHex = helpers.generateHex;
-const stem = helpers.stem;
+async function execute(strings) {
+    let command = grammar.parse(strings);
+    if (!module.exports[command.action]) {
+        throw C.INVALID_ACTION_ERROR;
+    }
+    return await module.exports[command.action](command);
+}
 
+function PING() {
+    return C.PING_SUCCESS;
+}
 
-function createIndex({index, fields}) {
+function CREATE({index, fields}) {
     return new Promise((resolve, reject) => {
         if (storage[index]) {
-            return reject(new Error(ERR_PREFIX + 'Index ALREADY exists: ' + index));
+            return reject(sprintf(C.INDEX_EXISTS_ERROR, index));
         }
-        if ((new Set(fields.map((f) => f.field))).size != fields.length) {
-            return reject(new Error(ERR_PREFIX + 'Duplicate columns: ' + index));
+        fields = fields || [];
+        if (!isUnique(fields.map(f => f.field))) {
+            return reject(sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
         }
         let f = {};
-        for (const {field, type, enums, min, max, sortable} of fields) {
+        for (const {field, type, min, max} of fields) {
             let bitmaps = {};
-            let sortmap;
+            // let sortmap;
             if (type === 'INTEGER') {
                 if (max < min) {
-                    return reject(new Error(ERR_PREFIX + 'Invalid MIN or MAX: ' + field));
+                    return reject(sprintf(C.INVALID_MIN_MAX_ERROR, field));
                 }
                 let zmax = max - min;
                 for (let i = 0; i <= zmax; i++) {
-                    bitmaps[i] = new RoaringBitmap32([]);
+                    bitmaps[i] = new RoaringBitmap();
                 }
-                if (sortable) {
-                    sortmap = getSortMap(zmax + 1);
-                }
+                // if (sortable) {
+                //     sortmap = getSortMap(zmax + 1);
+                // }
             }
+            // if (type === 'FOREIGN') {
+            //     if (!parent || !storage[parent]) {
+            //         return reject(new Error(ERR_PREFIX + 'Invalid FOREIGN field: ' + field));
+            //     }
+            // }
             f[field] = {
                 type,
                 bitmaps,
-                sortable: !!sortable,
-                ...(enums !== undefined ? {enums} : {}),
+                // sortable: !!sortable,
+                // ...(enums !== undefined ? {enums} : {}),
                 ...(min !== undefined ? {min} : {}),
                 ...(max !== undefined ? {max} : {}),
-                ...(sortmap !== undefined ? {sortmap} : {}),
+                // ...(sortmap !== undefined ? {sortmap} : {}),
+                // ...(parent !== undefined ? {parent} : {}),
             };
         }
         fields = f;
-        let ids = new RoaringBitmap32([]);
+        let ids = new RoaringBitmap();
         storage[index] = {fields, ids};
-        return resolve('CREATED');
+        return resolve(C.CREATE_SUCCESS);
     });
 }
 
-function addRecordToIndex({index, id, values}) {
+function DROP({index}) {
     return new Promise((resolve, reject) => {
         if (!storage[index]) {
-            return reject(new Error(ERR_PREFIX + 'Index NOT exist: ' + index));
+            return reject(sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
+        delete storage[index];
+        return resolve(C.DROP_SUCCESS);
+    });
+}
+
+function ADD({index, id, values}) {
+    return new Promise((resolve, reject) => {
+        if (!storage[index]) {
+            return reject(sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
+        }
+        values = values || [];
         let {fields, ids} = storage[index];
         if (ids.has(id)) {
-            return reject(new Error(ERR_PREFIX + 'ID ALREADY exists: ' + id));
+            return reject(sprintf(C.ID_EXISTS_ERROR, id));
         }
-        if (id < 1) {
-            return reject(new Error(ERR_PREFIX + 'ID is NEGATIVE or ZERO: ' + id));
+        if (!isUnique(values.map(v => v.field))) {
+            return reject(sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
         }
-        if ((new Set(values.map((v) => v.field))).size != values.length) {
-            return reject(new Error(ERR_PREFIX + 'Duplicate columns: ' + index));
+        let found = values.find(({value, field}) => !fields[field]);
+        if (found) {
+            return reject(sprintf(C.COLUMN_NOT_EXISTS_ERROR, found.field));
         }
-        let available = Object.keys(fields);
         for (let {value, field} of values) {
-            if (!available.includes(field)) {
-                return reject(new Error(ERR_PREFIX + 'Column NOT exist: ' + field));
-            }
-            let {type, bitmaps, enums, min, max, sortable, sortmap} = fields[field];
-            let invalid = ERR_PREFIX + 'Invalid ' + type + ' value: ' + value;
-            if (type === 'INTEGER') {
-                if (value > max || value < min) {
-                    return reject(new Error(invalid));
-                }
+            let {type, bitmaps, min, max} = fields[field];
+            if (type == 'INTEGER') {
                 value -= min;
                 max -= min;
                 min = 0;
-                if (sortable) {
-                    for (let i of getSortSlices(max + 1, value)) {
-                        sortmap.bitmaps[i].add(id);
-                    }
-                }
                 for (let i = value; i <= max; i++) {
                     bitmaps[i].add(id);
                 }
-            } else if (type === 'ENUM') {
-                if (!fields[field].enums.includes(value)) {
-                    return reject(new Error(invalid));
-                }
-            } else if (type === 'BOOLEAN') {
-                if (![true, false, 0, 1].includes(value)) {
-                    return reject(new Error(invalid));
-                }
-            } else if (type === 'STRING') {
-                let digest = md5(value);
-                if (!bitmaps[digest]) {
-                    bitmaps[digest] = new RoaringBitmap32([]);
-                }
-                bitmaps[digest].add(id);
-            } else if (type === 'FULLTEXT') {
-                for (let v of stem(value)) {
-                    if (!bitmaps[v]) {
-                        bitmaps[v] = new RoaringBitmap32([]);
-                    }
-                    bitmaps[v].add(id);
-                }
+                continue;
             }
+            if (type == 'STRING') {
+                if (!bitmaps[value]) {
+                    bitmaps[value] = new RoaringBitmap();
+                }
+                bitmaps[value].add(id);
+                continue;
+            }
+
+                // if (sortable) {
+                //     for (let i of getSortSlices(max + 1, value)) {
+                //         sortmap.bitmaps[i].add(id);
+                //     }
+                // }
+            // let err = C.INVALID_TYPE_VALUE
+            // let invalid = ERR_PREFIX + 'Invalid ' + type + ' value: ' + value;
+             // else if (type === 'ENUM') {
+            //     if (!fields[field].enums.includes(value)) {
+            //         return reject(new Error(invalid));
+            //     }
+            // } else if (type === 'BOOLEAN') {
+            //     if (![true, false, 0, 1].includes(value)) {
+            //         return reject(new Error(invalid));
+            //     }
+            // } else if (type === 'STRING') {
+            
+            // } else if (type === 'FULLTEXT') {
+            //     for (let v of stem(value)) {
+            //         if (!bitmaps[v]) {
+            //             bitmaps[v] = new RoaringBitmap([]);
+            //         }
+            //         bitmaps[v].add(id);
+            //     }
+            // } else if (type === 'INTEGERS') {
+            //     value = (value.match(/[+-]?\b\d+\b/g) || []).map(x => parseInt(x));
+            //     for (let v of value) {
+            //         if (Number.isNaN(v)) {
+            //             continue;
+            //         }
+            //         if (!bitmaps[v]) {
+            //             bitmaps[v] = new RoaringBitmap([]);
+            //         }
+            //         bitmaps[v].add(id);
+            //     }
+            // } else if (type === 'FOREIGN') {
+            //     value = parseInt(value);
+            //     if (Number.isNaN(value)) {
+            //         return reject(new Error(invalid));
+            //     }
+            //     if (!bitmaps[value]) {
+            //         bitmaps[value] = new RoaringBitmap([]);
+            //     }
+            //     bitmaps[value].add(id);
+            // }
         }
         ids.add(id);
         storage[index].min = Math.min(...[id, storage[index].min].filter(Number));
         storage[index].max = Math.max(...[id, storage[index].max].filter(Number));
-        return resolve('ADDED');
+        return resolve(C.ADD_SUCCESS);
     });
 }
 
@@ -148,7 +217,7 @@ function getSortMap(card) {
         shift++;
     } while (card);
     let _ = {};
-    all.forEach(e => _[e] = new RoaringBitmap32());
+    all.forEach(e => _[e] = new RoaringBitmap());
     return {map: tree[shift - 1], bitmaps: _};
 }
 
@@ -179,12 +248,12 @@ function searchIndex({index, query, limit, sortby}) {
             return reject(new Error(ERR_PREFIX + 'Column NOT sortable: ' + sortby));
         }
         let [off, lim] = limit || [0, 100];
-        let cursor = off == 'CURSOR' ? generateHex() : false;
+        let cursor = off == 'CURSOR' ? hex() : false;
         off = cursor ? 0 : off;
         if (off < 0 || lim < 0) {
             return reject(new Error(ERR_PREFIX + 'Invalid LIMIT values!'));
         }
-        query = queryGrammar.parse(query);
+        console.log(query)
         let iterator;
         let bitmap = getBitmap(index, query);
         if (sortby) {
@@ -249,7 +318,7 @@ function cursor({cursor}) {
 
 function* getSortIterator(map, bitmaps, bitmap) {
     for (let [k, v] of map.entries()) {
-        let and = RoaringBitmap32.and(bitmaps[k], bitmap);
+        let and = RoaringBitmap.and(bitmaps[k], bitmap);
         if (v === null) {
             yield* and.iterator();
         } else if (and.size) {
@@ -260,39 +329,48 @@ function* getSortIterator(map, bitmaps, bitmap) {
 
 function getBitmap(index, query) {
     if (query.values) {
-        let {values, field} = query;
+        let {values, field, external} = query;
+        if (values.includes('*')) {
+            return storage[index].ids;
+        }
+        if (!values.length) {
+            return new RoaringBitmap();
+        }
+        // if (external) {
+        //     if () {
+
+        //     }
+            
+        // }
         if (values.length > 1) {
-            let queries = values.map((v) => ({values: [v], field}));
+            let queries = values.map(v => ({values: [v], field}));
             return getOrBitmap(index, queries);
         }
+        let [value] = values;
         if (field && !storage[index].fields[field]) {
             throw ERR_PREFIX + 'Column NOT exist: ' + field;
-        }
-        let [value] = values;
-        if (value === '*') {
-            return storage[index].ids;
         }
         if (!field) {
             let fields = Object.entries(storage[index].fields);
             fields = fields.filter(([k, v]) => ['FULLTEXT'].includes(v.type));
             fields = fields.map(([k, v]) => k);
             if (!fields.length) {
-                return new RoaringBitmap32();
+                return new RoaringBitmap();
             }
-            let queries = fields.map((field) => ({values, field}));
+            let queries = fields.map(field => ({values, field}));
             return getOrBitmap(index, queries);
         }
         let {type, bitmaps, enums, min, max} = storage[index].fields[field];
         if (type === 'STRING') {
-            return bitmaps[md5(value)] || new RoaringBitmap32();
+            return bitmaps[md5(value)] || new RoaringBitmap();
         }
         if (type === 'FULLTEXT') {
             let words = Array.isArray(value) ? value : stem(value);
             if (!words.length) {
-                return new RoaringBitmap32();
+                return new RoaringBitmap();
             }
             if (words.length == 1) {
-                return bitmaps[words[0]] || new RoaringBitmap32();
+                return bitmaps[words[0]] || new RoaringBitmap();
             }
             let queries = words.map((v) => ({values: [v], field}));
             return getAndBitmap(index, queries);
@@ -302,10 +380,13 @@ function getBitmap(index, query) {
                 value = [value, value];
             }
             let [from, to] = value;
+            if (Number.isNaN(from) || Number.isNaN(to)) {
+                return new RoaringBitmap();
+            }
             from = ['MIN', 'MAX'].includes(from) ? (from == 'MAX' ? max : min) : from;
             to = ['MIN', 'MAX'].includes(to) ? (to == 'MAX' ? max : min) : to;
             if (to < from || to < min || from > max) {
-                return new RoaringBitmap32();
+                return new RoaringBitmap();
             }
             from = from < min ? min : from;
             to = to > max ? max : to;
@@ -316,7 +397,10 @@ function getBitmap(index, query) {
             if ((to == 0) || (from == 0 && to == max)) {
                 return bitmaps[to];
             }
-            return RoaringBitmap32.andNot(bitmaps[to], bitmaps[from - 1]);
+            return RoaringBitmap.andNot(bitmaps[to], bitmaps[from - 1]);
+        }
+        if (type === 'INTEGERS') {
+            return bitmaps[value] || new RoaringBitmap();
         }
     }
     let {op, queries} = query;
@@ -334,12 +418,12 @@ function getBitmap(index, query) {
 
 function getAndBitmap(index, queries) {
     queries = queries.map((query) => {
-        if (!(query instanceof RoaringBitmap32)) {
+        if (!(query instanceof RoaringBitmap)) {
             query = getBitmap(index, query);
         }
         return query;
     });
-    let and = RoaringBitmap32.and(queries[0], queries[1]);
+    let and = RoaringBitmap.and(queries[0], queries[1]);
     queries = queries.splice(2);
     for (let i = 0; i < queries.length; i++) {
         and = and.andInPlace(queries[i]);
@@ -349,40 +433,25 @@ function getAndBitmap(index, queries) {
 
 function getOrBitmap(index, queries) {
     queries = queries.map((query) => {
-        if (!(query instanceof RoaringBitmap32)) {
+        if (!(query instanceof RoaringBitmap)) {
             query = getBitmap(index, query);
         }
         return query;
     });
-    return RoaringBitmap32.orMany(queries);
+    console.log(queries)
+    return RoaringBitmap.orMany(queries);
 }
 
 function getNotBitmap(index, [query]) {
-    if (!(query instanceof RoaringBitmap32)) {
+    if (!(query instanceof RoaringBitmap)) {
         query = getBitmap(index, query);
     }
-    let bitmap = new RoaringBitmap32(query);
+    let bitmap = new RoaringBitmap(query);
     let {min, max} = storage[index];
     bitmap.flipRange(min, max + 1);
     return bitmap;
 }
 
-function dropIndex({index}) {
-    return new Promise((resolve, reject) => {
-        if (!storage[index]) {
-            return reject(new Error(ERR_PREFIX + 'Index NOT exist: ' + index));
-        }
-        delete storage[index];
-        return resolve('DROPPED');
-    });
-}
 
-module.exports = {
-    createIndex,
-    dropIndex,
-    cursor,
-    addRecordToIndex,
-    searchIndex,
-    getSortMap,
-    getSortSlices,
-};
+
+

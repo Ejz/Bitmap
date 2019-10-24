@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const snowball = require('node-snowball');
+const C = require('./constants');
 
 const CR = '\r';
 const LF = '\n';
@@ -21,6 +22,44 @@ function rand(min, max) {
 
 function generateHex() {
     return Math.floor(Math.random() * Math.pow(2, 32)).toString(16).toUpperCase();
+}
+
+function isUnique(array) {
+    return new Set(array).size == array.length;
+}
+
+function freader(socket) {
+    let buffer = '';
+    return (size) => new Promise((resolve, reject) => {
+        function cb_data(data) {
+            if (data !== undefined) {
+                buffer += data.toString();
+            }
+            let n = buffer.indexOf(CRLF);
+            let undef = size === undefined;
+            if (
+                (!undef && buffer.length >= size) ||
+                (undef && ~n)
+            ) {
+                let s = undef ? n + 2 : size;
+                let result = buffer.substring(0, s);
+                buffer = buffer.substring(s);
+                finalize();
+                resolve(result);
+            }
+        }
+        function cb_end() {
+            finalize();
+            reject(C.CONNECTION_ERROR);
+        }
+        function finalize() {
+            socket.off('data', cb_data);
+            socket.off('end', cb_end);
+        }
+        socket.on('data', cb_data);
+        socket.on('end', cb_end);
+        cb_data();
+    });
 }
 
 function toResp(message) {
@@ -53,7 +92,7 @@ async function fromResp(fread) {
     let type = line[0];
     let result = line.substr(1, line.length - 3);
     if (type === '-') {
-        throw new Error(result);
+        throw result;
     }
     if (type === '+') {
         return result;
@@ -77,19 +116,20 @@ async function fromResp(fread) {
         }
         return result;
     }
-    throw new Error('UNKNOWN TYPE: ' + type);
+    throw 'UNKNOWN TYPE: ' + type;
 }
 
-function to(promise) {
-    return promise.then((data) => {
-        return [null, data];
-    }).catch(err => [err]);
+function to(p) {
+    p = p.then ? p : Promise.resolve(p);
+    return p.then(data => [data, null]).catch(err => [null, err]);
 }
 
 module.exports = {
     to,
     generateHex,
+    freader,
     md5,
+    isUnique,
     rand,
     toResp,
     fromResp,

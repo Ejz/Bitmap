@@ -1,64 +1,90 @@
-const grammar = require('../grammar');
+const Grammar = require('../grammar');
+const helpers = require('../helpers');
 
-test('grammar - command - create', () => {
-    let command = new grammar.Command();
-    let cmd;
+const to = helpers.to;
+
+async function parse(cmd) {
+    let grammar = new Grammar();
+    cmd = cmd.split(/\s+/).filter(Boolean);
+    return await to(new Promise(r => r(grammar.parse(cmd))));
+}
+
+async function parseQuery(cmd) {
+    let grammar = new Grammar();
+    return await to(new Promise(r => r(grammar.parseQuery(cmd))));
+}
+
+test('grammar - command - create', async () => {
+    let r, e;
     //
-    cmd = command.parse([
-        'CREATe', 'Index', 'SCHEMA',
-        'f1', 'String',
-        'f2', 'strinG',
-    ]);
-    expect(cmd['action']).toBe('CREATE');
-    expect(cmd['index']).toBe('index');
-    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'STRING'});
-    expect(cmd['fields'][1]).toStrictEqual({field: 'f2', type: 'STRING'});
+    [r, e] = await parse('create Index');
+    expect(r).toStrictEqual({action: 'CREATE', index: 'index'});
     //
-    cmd = command.parse([
-        'CREATe', 'Index', 'SCHEMA',
-        'f1', 'String',
-    ]);
-    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'STRING'});
+    [r, e] = await parse('create index unknown');
+    expect(e).toMatch(/unexpected/i);
     //
-    cmd = command.parse([
-        'CREATe', 'Index', 'SCHEMA',
-        'f1', 'integer', 'min', 1, 'max', 2,
-    ]);
-    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'INTEGER', min: 1, max: 2, sortable: undefined});
+    [r, e] = await parse('create index fields');
+    expect(e).toMatch(/no fields/i);
     //
-    cmd = command.parse([
-        'CREATe', 'Index', 'SCHEMA',
-        'f1', 'enum', '(', '+1', 'foo', ')',
-    ]);
-    expect(cmd['fields'][0]).toStrictEqual({field: 'f1', type: 'ENUM', enums: [1, 'foo']});
+    [r, e] = await parse('create index fields string string');
+    expect(r).toStrictEqual({
+        action: 'CREATE',
+        index: 'index',
+        fields: [{field: 'string', type: 'STRING'}],
+    });
+    //
+    [r, e] = await parse('create index fields string1 string string2 string string3 string');
+    expect(e).toBe(null);
+    //
+    [r, e] = await parse('create index fields FT fulltext');
+    expect(r.fields).toStrictEqual([{field: 'ft', type: 'FULLTEXT'}]);
+    //
+    [r, e] = await parse('create index fields i integer min 1 max 2');
+    expect(r.fields).toStrictEqual([{field: 'i', type: 'INTEGER', min: 1, max: 2}]);
+    //
+    [r, e] = await parse('create index fields i integer max 2');
+    expect(e).toMatch(/unexpected.*max/i);
+    //
+    [r, e] = await parse('create index fields i integer min 1 max 1e3');
+    expect(r.fields[0].max).toStrictEqual(1000);
+    //
+    [r, e] = await parse('create index fields i integer min 1 max ' + '1'.repeat(100));
+    expect(e).toMatch(/invalid integer/i);
 });
 
-test('grammar - command - add', () => {
-    let command = new grammar.Command();
-    let cmd = command.parse([
-        'ADD', 'Index', 1, 'fields',
-        'f1', 'asd1',
-        'f2', 'asd2',
-    ]);
-    expect(cmd['action']).toBe('ADD');
-    expect(cmd['index']).toBe('index');
-    expect(cmd['id']).toBe(1);
-    expect(cmd['values'][0]).toStrictEqual({field: 'f1', value: 'asd1'});
-    expect(cmd['values'][1]).toStrictEqual({field: 'f2', value: 'asd2'});
+test('grammar - command - add', async () => {
+    let r, e;
+    //
+    [r, e] = await parse('add Index 1');
+    expect(r).toStrictEqual({action: 'ADD', index: 'index', id: 1});
+    //
+    [r, e] = await parse('add Index 1e3 values f1 add f2 create');
+    expect(r).toStrictEqual({
+        action: 'ADD',
+        index: 'index',
+        id: 1000,
+        values: [{field: 'f1', value: 'add'}, {field: 'f2', value: 'create'}],
+    });
 });
 
-test('grammar - command - search', () => {
-    let command = new grammar.Command();
-    let cmd = command.parse([
-        'SEARCH', 'Index', 'hello world',
-    ]);
-    expect(cmd['action']).toBe('SEARCH');
-    expect(cmd['index']).toBe('index');
-    expect(cmd['query']).toBe('hello world');
+test('grammar - command - search', async () => {
+    let r, e;
+    //
+    [r, e] = await parse('search index foobar limit 1');
+    expect(r.limit).toStrictEqual([0, 1]);
+    //
+    [r, e] = await parse('search index foobar limit 10 1e2');
+    expect(r.limit).toStrictEqual([10, 100]);
+    //
+    [r, e] = await parse('search index *');
+    expect(r.limit).toStrictEqual([0, 100]);
+    expect(r.query).toStrictEqual({values: ['*']});
 });
 
-test('grammar - query - simple', () => {
-    let query = new grammar.Query();
-    let q = query.parse('*');
-    expect(q['values']).toStrictEqual(['*']);
+test('grammar - query - simple', async () => {
+    let r, e;
+    //
+    [r, e] = await parseQuery('foo bar');
+    expect(r.op).toBe('&');
+    expect(r.queries).toStrictEqual([{values: ['foo']}, {values: ['bar']}]);
 });

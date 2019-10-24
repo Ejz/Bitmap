@@ -1,5 +1,7 @@
 const bitmap = require('../bitmap');
 const helpers = require('../helpers');
+const C = require('../constants');
+const sprintf = require('util').format;
 
 const to = helpers.to;
 const rand = helpers.rand;
@@ -38,25 +40,26 @@ test('bitmap - getSortMap', () => {
     expect(res.map.get('1x')).toStrictEqual(new Map([['10', null]]));
 });
 
-test('bitmap - create / drop', async () => {
+test('bitmap - CREATE / DROP', async () => {
     let res;
-    res = await bitmap.createIndex({index: 'index', fields: []});
-    expect(res).toBe('CREATED');
-    res = await bitmap.dropIndex({index: 'index'});
-    expect(res).toBe('DROPPED');
+    res = await bitmap.execute('create index');
+    expect(res).toBe(C.CREATE_SUCCESS);
+    res = await bitmap.execute('drop index');
+    expect(res).toBe(C.DROP_SUCCESS);
 });
 
-test('bitmap - create / add', async () => {
-    let res;
-    res = await bitmap.createIndex({index: 'index', fields: [{field: 'f1', type: 'STRING'}]});
-    res = await bitmap.addRecordToIndex({index: 'index', id: 1, values: [{field: 'f1', value: 'v1'}]});
-    expect(res).toBe('ADDED');
-    [res] = await to(bitmap.addRecordToIndex({index: 'index', id: 1, values: []}));
-    expect(res.message).toContain('ID ALREADY exists');
-    await bitmap.dropIndex({index: 'index'});
+test('bitmap - ADD (STRING)', async () => {
+    let res, err;
+    res = await bitmap.execute('create index fields f1 string');
+    expect(res).toBe(C.CREATE_SUCCESS);
+    [, err] = await to(bitmap.execute('add index 1 values f2 v1'));
+    expect(err).toBe(sprintf(C.COLUMN_NOT_EXISTS_ERROR, 'f2'));
+    res = await bitmap.execute('add index 1 values f1 v1');
+    expect(res).toBe(C.ADD_SUCCESS);
+    await bitmap.execute('drop index');
 });
 
-test('bitmap - search - common', async () => {
+test.only('bitmap - search - common', async () => {
     let res;
     res = await bitmap.createIndex({index: 'index', fields: [{field: 'f1', type: 'STRING'}]});
     let strings = ['foo', 'bar', 'hello', 'world'];
@@ -237,4 +240,50 @@ test('bitmap - fulltext', async () => {
     res.shift()
     expect(res).toStrictEqual([1, 2, 3]);
     await bitmap.dropIndex({index: 'index'});
+});
+
+test('bitmap - integers', async () => {
+    let res;
+    let id = 1;
+    await bitmap.createIndex({
+        index: 'index', fields: [
+            {field: 'f1', type: 'INTEGERS'},
+        ]
+    });
+    await bitmap.addRecordToIndex({index: 'index', id: id++, values: [
+        {field: 'f1', value: '+1,-1,2b,b3,7'},
+    ]});
+    await bitmap.addRecordToIndex({index: 'index', id: id++, values: [
+        {field: 'f1', value: '1,10,2'},
+    ]});
+    res = await bitmap.searchIndex({index: 'index', query: '@f1:1'});
+    res.shift()
+    expect(res).toStrictEqual([1, 2]);
+    res = await bitmap.searchIndex({index: 'index', query: '@f1:2'});
+    res.shift()
+    expect(res).toStrictEqual([2]);
+    await bitmap.dropIndex({index: 'index'});
+});
+
+test('bitmap - foreign', async () => {
+    let res;
+    let id = 1;
+    await bitmap.createIndex({
+        index: 't1', fields: []
+    });
+    await bitmap.createIndex({
+        index: 't2', fields: [
+            {field: 't1', parent: 't1', type: 'FOREIGN'},
+        ]
+    });
+    await bitmap.addRecordToIndex({index: 't1', id: id++, values: []});
+    [res] = await to(bitmap.addRecordToIndex({index: 't2', id: id++, values: [
+        {field: 't1', value: 2},
+    ]}));
+    expect(res.message.indexOf('FOREIGN') > -1).toBe(true);
+    await bitmap.addRecordToIndex({index: 't2', id: id++, values: [
+        {field: 't1', value: 1},
+    ]});
+    await bitmap.dropIndex({index: 't1'});
+    await bitmap.dropIndex({index: 't2'});
 });

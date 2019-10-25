@@ -2,8 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const jison = require('jison');
 const helpers = require('./helpers');
+const C = require('./constants');
+const sprintf = require('util').format;
 
 const md5 = helpers.md5;
+const castToArray = helpers.castToArray;
+const isInteger = helpers.isInteger;
 
 const grammar = {
     lex: {
@@ -97,8 +101,7 @@ class Grammar {
         this.getInteger = () => {
             let string = this.getValue();
             let integer = Number(string);
-            let [min, max] = [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER];
-            if (min <= integer && integer <= max) {
+            if (isInteger(integer)) {
                 return integer;
             }
             throw 'Invalid INTEGER: ' + string;
@@ -164,27 +167,25 @@ class Grammar {
         }
     }
 
-    parse(strings) {
+    parse(strings, ...args) {
         let command = {};
         let pos = 0;
-        if (typeof(strings) === 'string') {
-            strings = strings.split(/\s+/).filter(Boolean);
-        }
+        strings = castToArray(strings, ...args);
         this.strings = strings;
         while (this.strings.length) {
             if (!command.action) {
                 command.action = this.getAction();
                 continue;
             }
-            if (command.action == 'PING') {
-                throw 'PING: Invalid arguments';
+            if (['PING', 'LIST'].includes(command.action)) {
+                throw sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
             }
             if (!command.index) {
                 command.index = this.getIdent();
                 continue;
             }
-            if (command.action == 'DROP') {
-                throw 'DROP: Invalid arguments';
+            if (['DROP'].includes(command.action)) {
+                throw sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
             }
             if (command.action == 'CREATE') {
                 command.fields = [];

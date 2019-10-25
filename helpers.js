@@ -124,6 +124,26 @@ function to(p) {
     return p.then(data => [data, null]).catch(err => [null, err]);
 }
 
+function castToArray(strings, ...args) {
+    if (Array.isArray(strings)) {
+        if (args.length) {
+            throw C.INVALID_INPUT;
+        }
+        return strings;
+    }
+    if (typeof(strings) != 'string') {
+        throw C.INVALID_INPUT;
+    }
+    // @todo check length
+    let cb = () => String(args.shift());
+    return strings.split(/\s+/).filter(Boolean).map(_ => _.replace(/\?/g, cb));
+}
+
+function isInteger(i) {
+    let [min, max] = [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER];
+    return min <= i && i <= max;
+}
+
 module.exports = {
     to,
     generateHex,
@@ -134,4 +154,6 @@ module.exports = {
     toResp,
     fromResp,
     stem,
+    castToArray,
+    isInteger,
 };

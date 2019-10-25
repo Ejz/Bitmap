@@ -8,6 +8,7 @@ const sprintf = require('util').format;
 const generateHex = helpers.generateHex;
 const stem = helpers.stem;
 const isUnique = helpers.isUnique;
+const isInteger = helpers.isInteger;
 const grammar = new Grammar();
 
 module.exports = {
@@ -15,6 +16,8 @@ module.exports = {
     CREATE,
     DROP,
     ADD,
+    SEARCH,
+    LIST,
     execute,
     getSortMap,
     getSortSlices,
@@ -31,8 +34,8 @@ function hex() {
     return _;
 }
 
-async function execute(strings) {
-    let command = grammar.parse(strings);
+async function execute(strings, ...args) {
+    let command = grammar.parse(strings, ...args);
     if (!module.exports[command.action]) {
         throw C.INVALID_ACTION_ERROR;
     }
@@ -41,6 +44,10 @@ async function execute(strings) {
 
 function PING() {
     return C.PING_SUCCESS;
+}
+
+function LIST() {
+    return Object.keys(storage);
 }
 
 function CREATE({index, fields}) {
@@ -53,10 +60,10 @@ function CREATE({index, fields}) {
             return reject(sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
         }
         let f = {};
-        for (const {field, type, min, max} of fields) {
+        for (let {field, type, min, max} of fields) {
             let bitmaps = {};
             // let sortmap;
-            if (type === 'INTEGER') {
+            if (type === C.TYPE_INTEGER) {
                 if (max < min) {
                     return reject(sprintf(C.INVALID_MIN_MAX_ERROR, field));
                 }
@@ -114,13 +121,21 @@ function ADD({index, id, values}) {
         if (!isUnique(values.map(v => v.field))) {
             return reject(sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
         }
-        let found = values.find(({value, field}) => !fields[field]);
+        let found;
+        found = values.find(({value, field}) => !fields[field]);
         if (found) {
             return reject(sprintf(C.COLUMN_NOT_EXISTS_ERROR, found.field));
         }
+        found = values.find(({value, field}) => {
+            let {type, min, max} = fields[field];
+            return type == C.TYPE_INTEGER && (value < min || max < value);
+        });
+        if (found) {
+            return reject(sprintf(C.INTEGER_OUT_OF_RANGE_ERROR, found.field));
+        }
         for (let {value, field} of values) {
             let {type, bitmaps, min, max} = fields[field];
-            if (type == 'INTEGER') {
+            if (type == C.TYPE_INTEGER) {
                 value -= min;
                 max -= min;
                 min = 0;
@@ -190,6 +205,86 @@ function ADD({index, id, values}) {
     });
 }
 
+function SEARCH({index, query, limit}) {
+    return new Promise((resolve, reject) => {
+        if (!storage[index]) {
+            return reject(sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
+        }
+        // if (
+        //     sortby && (
+        //         !storage[index].fields[sortby] ||
+        //         !storage[index].fields[sortby].sortable
+        //     )
+        // ) {
+        //     return reject(new Error(ERR_PREFIX + 'Column NOT sortable: ' + sortby));
+        // }
+        let [off, lim] = limit;
+        let cursor = off == 'CURSOR' ? hex() : false;
+        off = cursor ? 0 : off;
+        // console.log(query);
+        // let iterator;
+        let bitmap = getBitmap(index, query);
+        let iterator = bitmap.iterator();
+        // if (sortby) {
+        //     let {map, bitmaps} = storage[index].fields[sortby].sortmap;
+        //     iterator = getSortIterator(map, bitmaps, bitmap);
+        // } else {
+        // }
+        let size = bitmap.size;
+        let ret = [size];
+        if (cursor) {
+            cursor = ret[0] > lim ? cursor : null;
+            ret.push(cursor);
+            if (cursor) {
+                cursors[cursor] = {size, iterator, lim, off: lim};
+                cursors[cursor].tid = setTimeout(() => {
+                    delete cursors[cursor];
+                }, C.CURSOR_TIMEOUT);
+            }
+        }
+        for (let i = 0; i < off + lim; i++) {
+            let {value, done} = iterator.next();
+            if (done) {
+                break;
+            }
+            if (off <= i) {
+                ret.push(value);
+            }
+        }
+        return resolve(ret);
+    });
+}
+
+function CURSOR({cursor}) {
+    return new Promise((resolve, reject) => {
+        if (!cursors[cursor]) {
+            return reject(sprintf(C.CURSOR_NOT_EXISTS_ERROR, cursor));
+        }
+        let cur = cursor;
+        let {tid, size, lim, iterator, off} = cursors[cursor];
+        clearTimeout(tid);
+        let ret = [size];
+        cursor = (size > lim + off) ? cursor : null;
+        ret.push(cursor);
+        if (cursor) {
+            cursors[cursor] = {size, iterator, lim, off: lim + off};
+            cursors[cursor].tid = setTimeout(() => {
+                delete cursors[cursor];
+            }, C.CURSOR_TIMEOUT);
+        } else {
+            delete cursors[cur];
+        }
+        for (let i = 0; i < lim; i++) {
+            let {value, done} = iterator.next();
+            if (done) {
+                break;
+            }
+            ret.push(value);
+        }
+        return resolve(ret);
+    });
+}
+
 function getSortMap(card) {
     let all = [];
     let shift = 0;
@@ -234,88 +329,6 @@ function getSortSlices(card, value) {
     return slices;
 }
 
-function searchIndex({index, query, limit, sortby}) {
-    return new Promise((resolve, reject) => {
-        if (!storage[index]) {
-            return reject(new Error(ERR_PREFIX + 'Index NOT exist: ' + index));
-        }
-        if (
-            sortby && (
-                !storage[index].fields[sortby] ||
-                !storage[index].fields[sortby].sortable
-            )
-        ) {
-            return reject(new Error(ERR_PREFIX + 'Column NOT sortable: ' + sortby));
-        }
-        let [off, lim] = limit || [0, 100];
-        let cursor = off == 'CURSOR' ? hex() : false;
-        off = cursor ? 0 : off;
-        if (off < 0 || lim < 0) {
-            return reject(new Error(ERR_PREFIX + 'Invalid LIMIT values!'));
-        }
-        console.log(query)
-        let iterator;
-        let bitmap = getBitmap(index, query);
-        if (sortby) {
-            let {map, bitmaps} = storage[index].fields[sortby].sortmap;
-            iterator = getSortIterator(map, bitmaps, bitmap);
-        } else {
-            iterator = bitmap.iterator();
-        }
-        let ret = [bitmap.size];
-        if (cursor) {
-            cursor = ret[0] > lim ? cursor : null;
-            ret.push(cursor);
-            if (cursor) {
-                cursors[cursor] = {size: ret[0], iterator, lim, off: lim};
-                cursors[cursor].tid = setTimeout(() => {
-                    delete cursors[cursor];
-                }, 1000 * 30);
-            }
-        }
-        for (let i = 0; i < off + lim; i++) {
-            let {value, done} = iterator.next();
-            if (done) {
-                break;
-            }
-            if (off <= i) {
-                ret.push(value);
-            }
-        }
-        return resolve(ret);
-    });
-}
-
-function cursor({cursor}) {
-    return new Promise((resolve, reject) => {
-        if (!cursors[cursor]) {
-            return reject(new Error(ERR_PREFIX + 'Cursor NOT exist: ' + cursor));
-        }
-        let cur = cursor;
-        let {tid, size, lim, iterator, off} = cursors[cursor];
-        clearTimeout(tid);
-        let ret = [size];
-        cursor = (size > lim + off) ? cursor : null;
-        ret.push(cursor);
-        if (cursor) {
-            cursors[cursor] = {size, iterator, lim, off: lim + off};
-            cursors[cursor].tid = setTimeout(() => {
-                delete cursors[cursor];
-            }, 1000 * 30);
-        } else {
-            delete cursors[cur];
-        }
-        for (let i = 0; i < lim; i++) {
-            let {value, done} = iterator.next();
-            if (done) {
-                break;
-            }
-            ret.push(value);
-        }
-        return resolve(ret);
-    });
-}
-
 function* getSortIterator(map, bitmaps, bitmap) {
     for (let [k, v] of map.entries()) {
         let and = RoaringBitmap.and(bitmaps[k], bitmap);
@@ -329,7 +342,7 @@ function* getSortIterator(map, bitmaps, bitmap) {
 
 function getBitmap(index, query) {
     if (query.values) {
-        let {values, field, external} = query;
+        let {values, field} = query;
         if (values.includes('*')) {
             return storage[index].ids;
         }
@@ -360,9 +373,9 @@ function getBitmap(index, query) {
             let queries = fields.map(field => ({values, field}));
             return getOrBitmap(index, queries);
         }
-        let {type, bitmaps, enums, min, max} = storage[index].fields[field];
+        let {type, bitmaps, min, max} = storage[index].fields[field];
         if (type === 'STRING') {
-            return bitmaps[md5(value)] || new RoaringBitmap();
+            return bitmaps[value] || new RoaringBitmap();
         }
         if (type === 'FULLTEXT') {
             let words = Array.isArray(value) ? value : stem(value);
@@ -375,26 +388,29 @@ function getBitmap(index, query) {
             let queries = words.map((v) => ({values: [v], field}));
             return getAndBitmap(index, queries);
         }
-        if (type === 'INTEGER') {
+        if (type === C.TYPE_INTEGER) {
             if (!Array.isArray(value)) {
                 value = [value, value];
             }
             let [from, to] = value;
-            if (Number.isNaN(from) || Number.isNaN(to)) {
-                return new RoaringBitmap();
-            }
             from = ['MIN', 'MAX'].includes(from) ? (from == 'MAX' ? max : min) : from;
             to = ['MIN', 'MAX'].includes(to) ? (to == 'MAX' ? max : min) : to;
-            if (to < from || to < min || from > max) {
-                return new RoaringBitmap();
+            if (!isInteger(from)) {
+                throw sprintf(C.INVALID_INTEGER_VALUE, from);
+            }
+            if (!isInteger(to)) {
+                throw sprintf(C.INVALID_INTEGER_VALUE, to);
             }
             from = from < min ? min : from;
             to = to > max ? max : to;
+            if (to < from || to < min || from > max) {
+                return new RoaringBitmap();
+            }
             to -= min;
             from -= min;
             max -= min;
             min = 0;
-            if ((to == 0) || (from == 0 && to == max)) {
+            if (!to || !from) {
                 return bitmaps[to];
             }
             return RoaringBitmap.andNot(bitmaps[to], bitmaps[from - 1]);
@@ -438,7 +454,6 @@ function getOrBitmap(index, queries) {
         }
         return query;
     });
-    console.log(queries)
     return RoaringBitmap.orMany(queries);
 }
 
@@ -451,7 +466,3 @@ function getNotBitmap(index, [query]) {
     bitmap.flipRange(min, max + 1);
     return bitmap;
 }
-
-
-
-

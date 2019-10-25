@@ -35,3 +35,10 @@ test('stem', () => {
     expect(helpers.stem(' - ')).toStrictEqual([]);
     expect(helpers.stem('i\'m ok')).toStrictEqual(['i', 'm', 'ok']);
 });
+
+test('castToArray', () => {
+    expect(helpers.castToArray(' Foo Bar ')).toStrictEqual(['Foo', 'Bar']);
+    expect(helpers.castToArray([1, 2])).toStrictEqual([1, 2]);
+    expect(helpers.castToArray('?? ?', 1, 2, 3)).toStrictEqual(['12', '3']);
+    expect(helpers.castToArray('? ? ?', 1, 2, 3)).toStrictEqual(['1', '2', '3']);
+});

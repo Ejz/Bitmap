@@ -6,6 +6,8 @@ const CR = '\r';
 const LF = '\n';
 const CRLF = CR + LF;
 
+const sprintf = require('util').format;
+
 function stem(word) {
     return word.split(/\W+/).filter(w => w.length).map(w => snowball.stemword(w.toLowerCase()));
 }
@@ -21,7 +23,7 @@ function rand(min, max) {
 }
 
 function generateHex() {
-    return Math.floor(Math.random() * Math.pow(2, 32)).toString(16).toUpperCase();
+    return Math.floor(Math.random() * Math.pow(2, 32)).toString(16);
 }
 
 function isUnique(array) {
@@ -134,9 +136,12 @@ function castToArray(strings, ...args) {
     if (typeof(strings) != 'string') {
         throw C.INVALID_INPUT;
     }
-    // @todo check length
+    let r = /\?/g;
+    if ((strings.match(r) || []).length != args.length) {
+        throw C.INVALID_INPUT;
+    }
     let cb = () => String(args.shift());
-    return strings.split(/\s+/).filter(Boolean).map(_ => _.replace(/\?/g, cb));
+    return strings.split(/\s+/).filter(Boolean).map(_ => _.replace(r, cb));
 }
 
 function isInteger(i) {
@@ -144,7 +149,12 @@ function isInteger(i) {
     return min <= i && i <= max;
 }
 
+function equal(a, b) {
+    return JSON.stringify(a) == JSON.stringify(b);
+}
+
 module.exports = {
+    equal,
     to,
     generateHex,
     freader,
@@ -154,6 +164,7 @@ module.exports = {
     toResp,
     fromResp,
     stem,
+    sprintf,
     castToArray,
     isInteger,
 };

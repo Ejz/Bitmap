@@ -1,13 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const jison = require('jison');
-const helpers = require('./helpers');
 const C = require('./constants');
-const sprintf = require('util').format;
-
-const md5 = helpers.md5;
-const castToArray = helpers.castToArray;
-const isInteger = helpers.isInteger;
+const _ = require('./helpers');
 
 const grammar = {
     lex: {
@@ -16,7 +11,7 @@ const grammar = {
             ['\\s+', '/* */'],
             ['[Mm][Ii][Nn]\\b', 'return "KW_MIN";'],
             ['[Mm][Aa][Xx]\\b', 'return "KW_MAX";'],
-            ['@@[a-zA-Z_][a-zA-Z0-9_]*\\b', 'return "EXTERNAL";'],
+            ['@@[a-zA-Z_][a-zA-Z0-9_]*\\b', 'return "FOREIGNKEY";'],
             ['@[a-zA-Z_][a-zA-Z0-9_]*\\b', 'return "IDENT";'],
             ['\\*', 'return "*";'],
             ['\\|', 'return "|";'],
@@ -44,7 +39,7 @@ const grammar = {
         e: [
             ['( e )', '$$ = $2'],
             ['IDENT : values', '$$ = {field: $1.substring(1).toLowerCase(), values: $3}'],
-            ['EXTERNAL : values', '$$ = {external: $1.substring(1).toLowerCase(), values: $3}'],
+            ['FOREIGNKEY : e', '$$ = {fk: $1.substring(2).toLowerCase(), values: $3}'],
             ['values', '$$ = {values: $1}'],
             ['e & e', '$$ = {op: $2, queries: [$1, $3]}'],
             ['e e', '$$ = {op: "&", queries: [$1, $2]}'],
@@ -79,7 +74,7 @@ const grammar = {
 
 class Grammar {
     constructor() {
-        let hash = md5(JSON.stringify(grammar));
+        let hash = _.md5(JSON.stringify(grammar));
         let target = path.resolve(__dirname + '/tmp', hash + '.js');
         if (!fs.existsSync(target)) {
             let parser = new jison.Parser(grammar);
@@ -88,7 +83,7 @@ class Grammar {
         this.parser = require(target);
         this.strings = [];
         this.actions = /^[A-Z]*$/;
-        this.types = ['STRING', 'INTEGER', 'FULLTEXT'];
+        this.types = C.TYPES;
         this.idents = /^[a-z_][a-z0-9_]*$/;
         this.getIdent = () => {
             let string = this.getValue();
@@ -101,7 +96,7 @@ class Grammar {
         this.getInteger = () => {
             let string = this.getValue();
             let integer = Number(string);
-            if (isInteger(integer)) {
+            if (_.isInteger(integer)) {
                 return integer;
             }
             throw 'Invalid INTEGER: ' + string;
@@ -170,7 +165,7 @@ class Grammar {
     parse(strings, ...args) {
         let command = {};
         let pos = 0;
-        strings = castToArray(strings, ...args);
+        strings = _.castToArray(strings, ...args);
         this.strings = strings;
         while (this.strings.length) {
             if (!command.action) {
@@ -178,25 +173,35 @@ class Grammar {
                 continue;
             }
             if (['PING', 'LIST'].includes(command.action)) {
-                throw sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
+                throw _.sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
+            }
+            if (['CURSOR'].includes(command.action) && !command.cursor) {
+                command.cursor = this.getIdent();
+                continue;
             }
             if (!command.index) {
                 command.index = this.getIdent();
                 continue;
             }
             if (['DROP'].includes(command.action)) {
-                throw sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
+                throw _.sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
             }
             if (command.action == 'CREATE') {
                 command.fields = [];
                 this.expectKeyword('FIELDS');
                 while (this.strings.length) {
                     let field = {field: this.getIdent(), type: this.getType()};
-                    if (field.type === 'INTEGER') {
+                    if (field.type == C.TYPE_INTEGER) {
                         this.expectKeyword('MIN');
                         field.min = this.getInteger();
                         this.expectKeyword('MAX');
                         field.max = this.getInteger();
+                        if (this.tryKeyword('SORTABLE')) {
+                            field.sortable = true;
+                        } else if (this.tryKeyword('NOTSORTABLE')) {
+                        }
+                    } else if (field.type == C.TYPE_FOREIGNKEY) {
+                        field.fk = this.getIdent();
                     }
                     command.fields.push(field);
                 }
@@ -224,6 +229,9 @@ class Grammar {
             if (command.action == 'SEARCH' && !command.limit) {
                 command.query = this.getValue();
                 command.query = this.parseQuery(command.query);
+                if (this.tryKeyword('SORTBY')) {
+                    command.sortby = this.getIdent();
+                }
                 command.limit = [0, 100];
                 if (this.tryKeyword('LIMIT')) {
                     let [off, lim] = [0, this.getPositiveOrZeroInteger()];
@@ -237,7 +245,7 @@ class Grammar {
                 }
                 continue;
             }
-            throw 'Syntax error!';
+            throw _.sprintf(C.SYNTAX_ERROR, this.strings.join(' '));
         }
         return command;
     }

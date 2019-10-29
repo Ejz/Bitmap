@@ -1,14 +1,9 @@
 const RoaringBitmap = require('roaring/RoaringBitmap32');
 const RoaringBitmapIterator = require('roaring/RoaringBitmap32Iterator');
-const helpers = require('./helpers');
 const Grammar = require('./grammar');
 const C = require('./constants');
-const sprintf = require('util').format;
+const _ = require('./helpers');
 
-const generateHex = helpers.generateHex;
-const stem = helpers.stem;
-const isUnique = helpers.isUnique;
-const isInteger = helpers.isInteger;
 const grammar = new Grammar();
 
 module.exports = {
@@ -18,6 +13,7 @@ module.exports = {
     ADD,
     SEARCH,
     LIST,
+    CURSOR,
     execute,
     getSortMap,
     getSortSlices,
@@ -27,11 +23,11 @@ const storage = {};
 const cursors = {};
 
 function hex() {
-    let _;
+    let hex;
     do {
-        _ = generateHex();
-    } while (Number(_.substring(0, 1)));
-    return _;
+        hex = _.generateHex();
+    } while (Number(hex.substring(0, 1)));
+    return hex;
 }
 
 async function execute(strings, ...args) {
@@ -53,42 +49,38 @@ function LIST() {
 function CREATE({index, fields}) {
     return new Promise((resolve, reject) => {
         if (storage[index]) {
-            return reject(sprintf(C.INDEX_EXISTS_ERROR, index));
+            return reject(_.sprintf(C.INDEX_EXISTS_ERROR, index));
         }
         fields = fields || [];
-        if (!isUnique(fields.map(f => f.field))) {
-            return reject(sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
+        if (!_.isUnique(fields.map(f => f.field))) {
+            return reject(_.sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
         }
         let f = {};
-        for (let {field, type, min, max} of fields) {
+        for (let {field, type, min, max, sortable, fk} of fields) {
             let bitmaps = {};
-            // let sortmap;
-            if (type === C.TYPE_INTEGER) {
+            let sortmap;
+            if (type == C.TYPE_INTEGER) {
                 if (max < min) {
-                    return reject(sprintf(C.INVALID_MIN_MAX_ERROR, field));
+                    return reject(_.sprintf(C.INVALID_MIN_MAX_ERROR, field));
                 }
                 let zmax = max - min;
                 for (let i = 0; i <= zmax; i++) {
                     bitmaps[i] = new RoaringBitmap();
                 }
-                // if (sortable) {
-                //     sortmap = getSortMap(zmax + 1);
-                // }
+                if (sortable) {
+                    sortmap = getSortMap(zmax + 1);
+                }
+            } else if (type == C.TYPE_FOREIGNKEY) {
+                fk = {fk, id2fk: {}};
             }
-            // if (type === 'FOREIGN') {
-            //     if (!parent || !storage[parent]) {
-            //         return reject(new Error(ERR_PREFIX + 'Invalid FOREIGN field: ' + field));
-            //     }
-            // }
             f[field] = {
                 type,
                 bitmaps,
-                // sortable: !!sortable,
-                // ...(enums !== undefined ? {enums} : {}),
                 ...(min !== undefined ? {min} : {}),
                 ...(max !== undefined ? {max} : {}),
-                // ...(sortmap !== undefined ? {sortmap} : {}),
-                // ...(parent !== undefined ? {parent} : {}),
+                ...(sortable !== undefined ? {sortable} : {}),
+                ...(sortmap !== undefined ? {sortmap} : {}),
+                ...(fk !== undefined ? {fk} : {}),
             };
         }
         fields = f;
@@ -101,7 +93,7 @@ function CREATE({index, fields}) {
 function DROP({index}) {
     return new Promise((resolve, reject) => {
         if (!storage[index]) {
-            return reject(sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
+            return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
         delete storage[index];
         return resolve(C.DROP_SUCCESS);
@@ -111,92 +103,71 @@ function DROP({index}) {
 function ADD({index, id, values}) {
     return new Promise((resolve, reject) => {
         if (!storage[index]) {
-            return reject(sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
+            return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
         values = values || [];
         let {fields, ids} = storage[index];
         if (ids.has(id)) {
-            return reject(sprintf(C.ID_EXISTS_ERROR, id));
+            return reject(_.sprintf(C.ID_EXISTS_ERROR, id));
         }
-        if (!isUnique(values.map(v => v.field))) {
-            return reject(sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
+        if (!_.isUnique(values.map(v => v.field))) {
+            return reject(_.sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
         }
         let found;
         found = values.find(({value, field}) => !fields[field]);
         if (found) {
-            return reject(sprintf(C.COLUMN_NOT_EXISTS_ERROR, found.field));
+            return reject(_.sprintf(C.COLUMN_NOT_EXISTS_ERROR, found.field));
         }
         found = values.find(({value, field}) => {
             let {type, min, max} = fields[field];
             return type == C.TYPE_INTEGER && (value < min || max < value);
         });
         if (found) {
-            return reject(sprintf(C.INTEGER_OUT_OF_RANGE_ERROR, found.field));
+            return reject(_.sprintf(C.INTEGER_OUT_OF_RANGE_ERROR, found.field));
+        }
+        found = values.find(({value, field}) => {
+            let {type} = fields[field];
+            return type == C.TYPE_FOREIGNKEY && !(_.isInteger(value) && value > 0);
+        });
+        if (found) {
+            return reject(_.sprintf(C.FOREIGNKEY_ID_OUT_OF_RANGE_ERROR, found.field));
         }
         for (let {value, field} of values) {
-            let {type, bitmaps, min, max} = fields[field];
+            let {type, bitmaps, min, max, sortable, sortmap, fk} = fields[field];
             if (type == C.TYPE_INTEGER) {
-                value -= min;
-                max -= min;
-                min = 0;
-                for (let i = value; i <= max; i++) {
+                let zvalue = value - min;
+                let zmax = max - min;
+                for (let i = zvalue; i <= zmax; i++) {
                     bitmaps[i].add(id);
+                }
+                for (let i of (sortable ? getSortSlices(zmax + 1, zvalue) : [])) {
+                    sortmap.bitmaps[i].add(id);
                 }
                 continue;
             }
-            if (type == 'STRING') {
+            if (type == C.TYPE_STRING) {
                 if (!bitmaps[value]) {
                     bitmaps[value] = new RoaringBitmap();
                 }
                 bitmaps[value].add(id);
                 continue;
             }
-
-                // if (sortable) {
-                //     for (let i of getSortSlices(max + 1, value)) {
-                //         sortmap.bitmaps[i].add(id);
-                //     }
-                // }
-            // let err = C.INVALID_TYPE_VALUE
-            // let invalid = ERR_PREFIX + 'Invalid ' + type + ' value: ' + value;
-             // else if (type === 'ENUM') {
-            //     if (!fields[field].enums.includes(value)) {
-            //         return reject(new Error(invalid));
-            //     }
-            // } else if (type === 'BOOLEAN') {
-            //     if (![true, false, 0, 1].includes(value)) {
-            //         return reject(new Error(invalid));
-            //     }
-            // } else if (type === 'STRING') {
-            
-            // } else if (type === 'FULLTEXT') {
-            //     for (let v of stem(value)) {
-            //         if (!bitmaps[v]) {
-            //             bitmaps[v] = new RoaringBitmap([]);
-            //         }
-            //         bitmaps[v].add(id);
-            //     }
-            // } else if (type === 'INTEGERS') {
-            //     value = (value.match(/[+-]?\b\d+\b/g) || []).map(x => parseInt(x));
-            //     for (let v of value) {
-            //         if (Number.isNaN(v)) {
-            //             continue;
-            //         }
-            //         if (!bitmaps[v]) {
-            //             bitmaps[v] = new RoaringBitmap([]);
-            //         }
-            //         bitmaps[v].add(id);
-            //     }
-            // } else if (type === 'FOREIGN') {
-            //     value = parseInt(value);
-            //     if (Number.isNaN(value)) {
-            //         return reject(new Error(invalid));
-            //     }
-            //     if (!bitmaps[value]) {
-            //         bitmaps[value] = new RoaringBitmap([]);
-            //     }
-            //     bitmaps[value].add(id);
-            // }
+            if (type == C.TYPE_FULLTEXT) {
+                for (let v of _.stem(value)) {
+                    if (!bitmaps[v]) {
+                        bitmaps[v] = new RoaringBitmap();
+                    }
+                    bitmaps[v].add(id);
+                }
+                continue;
+            }
+            if (type == C.TYPE_FOREIGNKEY) {
+                if (!bitmaps[value]) {
+                    bitmaps[value] = new RoaringBitmap();
+                }
+                bitmaps[value].add(id);
+                fk.id2fk[id] = value;
+            }
         }
         ids.add(id);
         storage[index].min = Math.min(...[id, storage[index].min].filter(Number));
@@ -205,35 +176,31 @@ function ADD({index, id, values}) {
     });
 }
 
-function SEARCH({index, query, limit}) {
+function SEARCH({index, query, sortby, limit}) {
     return new Promise((resolve, reject) => {
         if (!storage[index]) {
-            return reject(sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
+            return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
-        // if (
-        //     sortby && (
-        //         !storage[index].fields[sortby] ||
-        //         !storage[index].fields[sortby].sortable
-        //     )
-        // ) {
-        //     return reject(new Error(ERR_PREFIX + 'Column NOT sortable: ' + sortby));
-        // }
+        let {fields} = storage[index];
+        if (sortby && (!fields[sortby] || !fields[sortby].sortable)) {
+            let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
+            return reject(_.sprintf(e, sortby));
+        }
+        // console.log(query)
         let [off, lim] = limit;
         let cursor = off == 'CURSOR' ? hex() : false;
         off = cursor ? 0 : off;
-        // console.log(query);
-        // let iterator;
-        let bitmap = getBitmap(index, query);
-        let iterator = bitmap.iterator();
-        // if (sortby) {
-        //     let {map, bitmaps} = storage[index].fields[sortby].sortmap;
-        //     iterator = getSortIterator(map, bitmaps, bitmap);
-        // } else {
-        // }
+        let iterator, bitmap = getBitmap(index, query);
+        if (sortby) {
+            let {map, bitmaps} = fields[sortby].sortmap;
+            iterator = getSortIterator(map, bitmaps, bitmap);
+        } else {
+            iterator = bitmap.iterator();
+        }
         let size = bitmap.size;
         let ret = [size];
         if (cursor) {
-            cursor = ret[0] > lim ? cursor : null;
+            cursor = size > lim ? cursor : null;
             ret.push(cursor);
             if (cursor) {
                 cursors[cursor] = {size, iterator, lim, off: lim};
@@ -258,7 +225,7 @@ function SEARCH({index, query, limit}) {
 function CURSOR({cursor}) {
     return new Promise((resolve, reject) => {
         if (!cursors[cursor]) {
-            return reject(sprintf(C.CURSOR_NOT_EXISTS_ERROR, cursor));
+            return reject(_.sprintf(C.CURSOR_NOT_EXISTS_ERROR, cursor));
         }
         let cur = cursor;
         let {tid, size, lim, iterator, off} = cursors[cursor];
@@ -308,7 +275,7 @@ function getSortMap(card) {
                 tree[shift].set(_, new Map(map));
             }
         }
-        card = Math.floor((card - 1) / div);
+        card = Math.floor((shift ? card : card - 1) / div);
         shift++;
     } while (card);
     let _ = {};
@@ -342,26 +309,41 @@ function* getSortIterator(map, bitmaps, bitmap) {
 
 function getBitmap(index, query) {
     if (query.values) {
-        let {values, field} = query;
+        let {values, field, fk} = query;
+        if (fk) {
+            if (!storage[fk]) {
+                throw _.sprintf(C.INDEX_NOT_EXISTS_ERROR, fk);
+            }
+            let {fields} = storage[fk];
+            console.log(fields)
+            let fks = Object.entries(fields).filter(
+                ([k, {type, fk}]) => type == C.TYPE_FOREIGNKEY && fk.fk == index
+            );
+            fk = fks[0][1].fk;
+            console.log(fk)
+            // if (!) {
+            //     throw _.sprintf(C.INDEX_NOT_EXISTS_ERROR, fk);
+            // }
+            let bitmap = new RoaringBitmap();
+            for (let id of getBitmap(fk.fk, values)) {
+                console.log(id)
+                bitmap.add(fk.id2fk[id]);
+            }
+            return bitmap;
+        }
         if (values.includes('*')) {
             return storage[index].ids;
         }
         if (!values.length) {
             return new RoaringBitmap();
         }
-        // if (external) {
-        //     if () {
-
-        //     }
-            
-        // }
         if (values.length > 1) {
             let queries = values.map(v => ({values: [v], field}));
             return getOrBitmap(index, queries);
         }
         let [value] = values;
         if (field && !storage[index].fields[field]) {
-            throw ERR_PREFIX + 'Column NOT exist: ' + field;
+            throw _.sprintf(C.COLUMN_NOT_EXISTS_ERROR, field);
         }
         if (!field) {
             let fields = Object.entries(storage[index].fields);
@@ -378,7 +360,7 @@ function getBitmap(index, query) {
             return bitmaps[value] || new RoaringBitmap();
         }
         if (type === 'FULLTEXT') {
-            let words = Array.isArray(value) ? value : stem(value);
+            let words = Array.isArray(value) ? value : _.stem(value);
             if (!words.length) {
                 return new RoaringBitmap();
             }
@@ -395,11 +377,11 @@ function getBitmap(index, query) {
             let [from, to] = value;
             from = ['MIN', 'MAX'].includes(from) ? (from == 'MAX' ? max : min) : from;
             to = ['MIN', 'MAX'].includes(to) ? (to == 'MAX' ? max : min) : to;
-            if (!isInteger(from)) {
-                throw sprintf(C.INVALID_INTEGER_VALUE, from);
+            if (!_.isInteger(from)) {
+                throw _.sprintf(C.INVALID_INTEGER_VALUE_ERROR, from);
             }
-            if (!isInteger(to)) {
-                throw sprintf(C.INVALID_INTEGER_VALUE, to);
+            if (!_.isInteger(to)) {
+                throw _.sprintf(C.INVALID_INTEGER_VALUE_ERROR, to);
             }
             from = from < min ? min : from;
             to = to > max ? max : to;
@@ -410,13 +392,10 @@ function getBitmap(index, query) {
             from -= min;
             max -= min;
             min = 0;
-            if (!to || !from) {
+            if (!from) {
                 return bitmaps[to];
             }
             return RoaringBitmap.andNot(bitmaps[to], bitmaps[from - 1]);
-        }
-        if (type === 'INTEGERS') {
-            return bitmaps[value] || new RoaringBitmap();
         }
     }
     let {op, queries} = query;

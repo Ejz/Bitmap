@@ -3,6 +3,7 @@ const RoaringBitmapIterator = require('roaring/RoaringBitmap32Iterator');
 const Grammar = require('./grammar');
 const C = require('./constants');
 const _ = require('./helpers');
+const debug = require('debug')('bitmap');
 
 const grammar = new Grammar();
 
@@ -135,6 +136,7 @@ function ADD({index, id, values}) {
         for (let {value, field} of values) {
             let {type, bitmaps, min, max, sortable, sortmap, fk} = fields[field];
             if (type == C.TYPE_INTEGER) {
+                value = Number(value);
                 let zvalue = value - min;
                 let zmax = max - min;
                 for (let i = zvalue; i <= zmax; i++) {
@@ -162,6 +164,7 @@ function ADD({index, id, values}) {
                 continue;
             }
             if (type == C.TYPE_FOREIGNKEY) {
+                value = Number(value);
                 if (!bitmaps[value]) {
                     bitmaps[value] = new RoaringBitmap();
                 }
@@ -186,7 +189,6 @@ function SEARCH({index, query, sortby, limit}) {
             let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
             return reject(_.sprintf(e, sortby));
         }
-        // console.log(query)
         let [off, lim] = limit;
         let cursor = off == 'CURSOR' ? hex() : false;
         off = cursor ? 0 : off;
@@ -315,19 +317,19 @@ function getBitmap(index, query) {
                 throw _.sprintf(C.INDEX_NOT_EXISTS_ERROR, fk);
             }
             let {fields} = storage[fk];
-            console.log(fields)
-            let fks = Object.entries(fields).filter(
-                ([k, {type, fk}]) => type == C.TYPE_FOREIGNKEY && fk.fk == index
+            let fks = Object.values(fields).filter(
+                ({type, fk}) => type == C.TYPE_FOREIGNKEY && fk.fk == index
             );
-            fk = fks[0][1].fk;
-            console.log(fk)
-            // if (!) {
-            //     throw _.sprintf(C.INDEX_NOT_EXISTS_ERROR, fk);
-            // }
+            if (!fks.length) {
+                throw _.sprintf(C.FOREIGNKEY_NOT_FOUND_ERROR, index, fk);
+            }
+            if (fks.length > 1) {
+                throw _.sprintf(C.FOREIGNKEY_AMBIGUOUS_ERROR, index, fk);
+            }
+            let {id2fk} = fks[0].fk;
             let bitmap = new RoaringBitmap();
-            for (let id of getBitmap(fk.fk, values)) {
-                console.log(id)
-                bitmap.add(fk.id2fk[id]);
+            for (let id of getBitmap(fk, values)) {
+                bitmap.add(id2fk[id]);
             }
             return bitmap;
         }

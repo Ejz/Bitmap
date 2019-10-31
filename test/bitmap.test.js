@@ -208,47 +208,35 @@ test.only('bitmap - FOREIGNKEY', async () => {
     let res;
     await bitmap.execute('create i1');
     await bitmap.execute('create i2 fields i1 foreignkey i1 f1 integer min 1 max 3');
+    await bitmap.execute('create i3 fields i2 foreignkey i2 f1 integer min 1 max 5');
     await bitmap.execute('add i1 ?', 1);
     await bitmap.execute('add i1 ?', 2);
     await bitmap.execute('add i2 ? values i1 ? f1 ?', 1, 1, 1);
     await bitmap.execute('add i2 ? values i1 ? f1 ?', 2, 2, 2);
     await bitmap.execute('add i2 ? values i1 ? f1 ?', 3, 1, 3);
+    await bitmap.execute('add i3 ? values i2 ? f1 ?', 1, 1, 1);
+    await bitmap.execute('add i3 ? values i2 ? f1 ?', 2, 2, 2);
+    await bitmap.execute('add i3 ? values i2 ? f1 ?', 3, 3, 3);
+    await bitmap.execute('add i3 ? values i2 ? f1 ?', 4, 1, 4);
+    await bitmap.execute('add i3 ? values i2 ? f1 ?', 5, 2, 5);
     let cases = {
         '@@i2:@f1:1': [1],
-        // '*': () => true,
+        '@@i2:(@f1:1)': [1],
+        '(@@i2:@f1:1)': [1],
+        '(@@i2:(@f1:1))': [1],
+        '@@i2:@@i3:@f1:1': [1],
+        '@@i2:(@@i3:@f1:1)': [1],
+        '@@i2:(@@i3:(@f1:1))': [1],
+        '@@i2:(@@i3:(@f1:1 | @f1:2))': [1, 2],
+        '@@i2:(@@i3:*)': [1, 2],
     };
     for (let [q, f] of Object.entries(cases)) {
         let [, ...res] = await bitmap.execute('search i1 ?', q);
-        console.log(f)
-        // let v = values.filter(f);
-        // v.sort(sortAsc);
-        // v = v.map(([id]) => id);
-        // expect(res).toStrictEqual(v);
+        expect(res).toStrictEqual(f);
     }
-
-    // let values = [];
-    // for (let i = 0; i < 1000; i++) {
-    //     let r = rand(-100, 100);
-    //     values.push([id++, r]);
-    // }
-    // let cases = {
-    //     '@f1:[1,10]': ([, v]) => 1 <= v && v <= 10,
-    //     '@f1:[10,100]': ([, v]) => 10 <= v && v <= 100,
-    //     '@f1:[-10,100]': ([, v]) => -10 <= v && v <= 100,
-    //     '@f1:[-10,10]': ([, v]) => -10 <= v && v <= 10,
-    //     '@f1:[min,0]': ([, v]) => -100 <= v && v <= 0,
-    //     '@f1:[0,max]': ([, v]) => 0 <= v && v <= 100,
-    //     '*': () => true,
-    // };
-    // for (let [q, f] of Object.entries(cases)) {
-    //     let [, ...res] = await bitmap.execute('search index ? sortby f1 limit 1e6', q);
-    //     let v = values.filter(f);
-    //     v.sort(sortAsc);
-    //     v = v.map(([id]) => id);
-    //     expect(res).toStrictEqual(v);
-    // }
     await bitmap.execute('drop i1');
     await bitmap.execute('drop i2');
+    await bitmap.execute('drop i3');
 });
 
 // test('bitmap - integers', async () => {

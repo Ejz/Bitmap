@@ -175,10 +175,6 @@ class Grammar {
             if (['PING', 'LIST'].includes(command.action)) {
                 throw _.sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
             }
-            if (['CURSOR'].includes(command.action) && !command.cursor) {
-                command.cursor = this.getIdent();
-                continue;
-            }
             if (!command.index) {
                 command.index = this.getIdent();
                 continue;
@@ -231,6 +227,10 @@ class Grammar {
                 command.query = this.parseQuery(command.query);
                 if (this.tryKeyword('SORTBY')) {
                     command.sortby = this.getIdent();
+                    if (this.tryKeyword('ASC')) {
+                    } else if (this.tryKeyword('DESC')) {
+                        command.desc = true;
+                    }
                 }
                 command.limit = [0, 100];
                 if (this.tryKeyword('LIMIT')) {
@@ -239,9 +239,6 @@ class Grammar {
                         [off, lim] = [lim, this.getPositiveOrZeroInteger()];
                     }
                     command.limit = [off, lim];
-                } else if (this.tryKeyword('CURSOR')) {
-                    let lim = this.getPositiveInteger();
-                    command.limit = ['CURSOR', lim];
                 }
                 continue;
             }

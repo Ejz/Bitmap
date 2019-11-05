@@ -1,19 +1,16 @@
 const net = require('net');
-const helpers = require('./helpers');
-
-const toResp = helpers.toResp;
-const fromResp = helpers.fromResp;
+const _ = require('./helpers');
 
 class Client {
     constructor(port) {
         this.socket = new net.Socket();
         this.socket.connect(port);
-        this.fread = helpers.freader(this.socket);
+        this.fread = _.freader(this.socket);
     }
 
     send(message) {
-        this.socket.write(toResp(message));
-        return fromResp(this.fread);
+        this.socket.write(_.toResp(message));
+        return _.fromResp(this.fread);
     }
 
     end() {

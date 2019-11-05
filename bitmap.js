@@ -14,14 +14,15 @@ module.exports = {
     ADD,
     SEARCH,
     LIST,
-    CURSOR,
+    STAT,
     execute,
     getSortMap,
     getSortSlices,
 };
 
 const storage = {};
-const cursors = {};
+
+const SORT_DIV = 3;
 
 function hex() {
     let hex;
@@ -47,6 +48,12 @@ function LIST() {
     return Object.keys(storage);
 }
 
+function STAT() {
+    let stat = {};
+    stat.heap = Math.round(process.memoryUsage().rss / 1e6) + 'MB';
+    return Object.entries(stat);
+}
+
 function CREATE({index, fields}) {
     return new Promise((resolve, reject) => {
         if (storage[index]) {
@@ -67,9 +74,10 @@ function CREATE({index, fields}) {
                 let zmax = max - min;
                 for (let i = 0; i <= zmax; i++) {
                     bitmaps[i] = new RoaringBitmap();
+                    bitmaps[i].persist = true;
                 }
                 if (sortable) {
-                    sortmap = getSortMap(zmax + 1);
+                    sortmap = getSortMap(zmax + 1, SORT_DIV);
                 }
             } else if (type == C.TYPE_FOREIGNKEY) {
                 fk = {fk, id2fk: {}};
@@ -86,6 +94,7 @@ function CREATE({index, fields}) {
         }
         fields = f;
         let ids = new RoaringBitmap();
+        ids.persist = true;
         storage[index] = {fields, ids};
         return resolve(C.CREATE_SUCCESS);
     });
@@ -142,14 +151,16 @@ function ADD({index, id, values}) {
                 for (let i = zvalue; i <= zmax; i++) {
                     bitmaps[i].add(id);
                 }
-                for (let i of (sortable ? getSortSlices(zmax + 1, zvalue) : [])) {
-                    sortmap.bitmaps[i].add(id);
+                let s = sortable ? getSortSlices(zmax + 1, [zvalue], SORT_DIV)[zvalue] : [];
+                for (let i of s) {
+                    sortmap.bitmaps.get(i).add(id);
                 }
                 continue;
             }
             if (type == C.TYPE_STRING) {
                 if (!bitmaps[value]) {
                     bitmaps[value] = new RoaringBitmap();
+                    bitmaps[value].persist = true;
                 }
                 bitmaps[value].add(id);
                 continue;
@@ -158,6 +169,7 @@ function ADD({index, id, values}) {
                 for (let v of _.stem(value)) {
                     if (!bitmaps[v]) {
                         bitmaps[v] = new RoaringBitmap();
+                        bitmaps[v].persist = true;
                     }
                     bitmaps[v].add(id);
                 }
@@ -167,6 +179,7 @@ function ADD({index, id, values}) {
                 value = Number(value);
                 if (!bitmaps[value]) {
                     bitmaps[value] = new RoaringBitmap();
+                    bitmaps[value].persist = true;
                 }
                 bitmaps[value].add(id);
                 fk.id2fk[id] = value;
@@ -179,7 +192,7 @@ function ADD({index, id, values}) {
     });
 }
 
-function SEARCH({index, query, sortby, limit}) {
+function SEARCH({index, query, sortby, desc, limit}) {
     return new Promise((resolve, reject) => {
         if (!storage[index]) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
@@ -190,123 +203,107 @@ function SEARCH({index, query, sortby, limit}) {
             return reject(_.sprintf(e, sortby));
         }
         let [off, lim] = limit;
-        let cursor = off == 'CURSOR' ? hex() : false;
-        off = cursor ? 0 : off;
-        let iterator, bitmap = getBitmap(index, query);
+        lim += off;
+        let bitmap = getBitmap(index, query);
+        let ret = [bitmap.size];
         if (sortby) {
             let {map, bitmaps} = fields[sortby].sortmap;
-            iterator = getSortIterator(map, bitmaps, bitmap);
+            let values = getSortValues(map, bitmaps, bitmap, lim, !!desc);
+            ret = ret.concat(values.slice(off));
         } else {
-            iterator = bitmap.iterator();
-        }
-        let size = bitmap.size;
-        let ret = [size];
-        if (cursor) {
-            cursor = size > lim ? cursor : null;
-            ret.push(cursor);
-            if (cursor) {
-                cursors[cursor] = {size, iterator, lim, off: lim};
-                cursors[cursor].tid = setTimeout(() => {
-                    delete cursors[cursor];
-                }, C.CURSOR_TIMEOUT);
+            let iterator = bitmap.iterator();
+            for (let i = 0; i < lim; i++) {
+                let {value, done} = iterator.next();
+                if (done) break;
+                if (off <= i) {
+                    ret.push(value);
+                }
             }
         }
-        for (let i = 0; i < off + lim; i++) {
-            let {value, done} = iterator.next();
-            if (done) {
-                break;
-            }
-            if (off <= i) {
-                ret.push(value);
-            }
+        if (!bitmap.persist) {
+            bitmap.clear();
         }
         return resolve(ret);
     });
 }
 
-function CURSOR({cursor}) {
-    return new Promise((resolve, reject) => {
-        if (!cursors[cursor]) {
-            return reject(_.sprintf(C.CURSOR_NOT_EXISTS_ERROR, cursor));
-        }
-        let cur = cursor;
-        let {tid, size, lim, iterator, off} = cursors[cursor];
-        clearTimeout(tid);
-        let ret = [size];
-        cursor = (size > lim + off) ? cursor : null;
-        ret.push(cursor);
-        if (cursor) {
-            cursors[cursor] = {size, iterator, lim, off: lim + off};
-            cursors[cursor].tid = setTimeout(() => {
-                delete cursors[cursor];
-            }, C.CURSOR_TIMEOUT);
-        } else {
-            delete cursors[cur];
-        }
-        for (let i = 0; i < lim; i++) {
-            let {value, done} = iterator.next();
-            if (done) {
-                break;
-            }
-            ret.push(value);
-        }
-        return resolve(ret);
-    });
-}
-
-function getSortMap(card) {
-    let all = [];
-    let shift = 0;
-    let div = 10;
-    let tree = [];
+function getSortMap(card, div) {
+    let values = Array.from(Array(card).keys());
+    let slices = getSortSlices(card, values, div);
+    let bitmaps = Object.values(slices).reduce((a, s) => a.concat(s), []);
+    bitmaps = Array.from(new Set(bitmaps));
+    bitmaps = new Map(bitmaps.map(k => {
+        let v = new RoaringBitmap();
+        v.persist = true;
+        return [k, v];
+    }));
+    let tree = [], shift = 0;
+    let keys = Array.from(bitmaps.keys());
     do {
-        tree[shift] = new Map();
-        for (let i = 0; i < (shift ? card + 1 : card); i++) {
-            let _ = i + 'x'.repeat(shift);
-            all.push(_);
-            tree[shift].set(_, null);
+        let regex = new RegExp('x'.repeat(shift));
+        tree[shift] = new Map(keys.filter(
+            k => regex.test(k)
+        ).map(k => {
+            let map = null;
             if (shift) {
-                let regex = new RegExp('^' + _.replace(/^0+/, '').replace('x', '\\d') + '$');
-                let map = all.filter((a) => regex.test(a)).map((a) => {
-                    let v = null;
-                    if (tree[shift - 1] && tree[shift - 1].has(a)) {
-                        v = tree[shift - 1].get(a);
-                    }
-                    return [a, v];
-                });
-                tree[shift].set(_, new Map(map));
+                let regex = new RegExp('^' + k.replace('x', '\\d') + '$');
+                map = new Map(keys.filter(k => regex.test(k) || regex.test('0' + k)).map(
+                    k => [k, tree[shift - 1].get(k)]
+                ));
             }
-        }
-        card = Math.floor((shift ? card : card - 1) / div);
-        shift++;
-    } while (card);
-    let _ = {};
-    all.forEach(e => _[e] = new RoaringBitmap());
-    return {map: tree[shift - 1], bitmaps: _};
-}
-
-function getSortSlices(card, value) {
-    let shift = 0;
-    let div = 10;
-    let slices = [];
-    do {
-        slices.push(value + 'x'.repeat(shift))
+            return [k, map];
+        }));
         card = Math.floor((card - 1) / div);
         shift++;
-        value = Math.floor(value / div);
+    } while (card);
+    return {map: tree[shift - 1], bitmaps};
+}
+
+function getSortSlices(card, values, div) {
+    let slices = {}, map = {};
+    values.forEach(v => {
+        slices[v] = [];
+        map[v] = Number(v).toString(div);
+    });
+    let shift = 0;
+    do {
+        values.forEach(v => {
+            slices[v].push(map[v] + 'x'.repeat(shift));
+            map[v] = map[v].substr(0, map[v].length - 1);
+        });
+        card = Math.floor((card - 1) / div);
+        shift++;
     } while (card);
     return slices;
 }
 
-function* getSortIterator(map, bitmaps, bitmap) {
-    for (let [k, v] of map.entries()) {
-        let and = RoaringBitmap.and(bitmaps[k], bitmap);
-        if (v === null) {
-            yield* and.iterator();
-        } else if (and.size) {
-            yield* getSortIterator(v, bitmaps, bitmap);
+function getSortValues(map, bitmaps, bitmap, limit, desc) {
+    let ret = [];
+    let entries = desc ? Array.from(map.entries()).reverse() : map.entries();
+    for (let [k, v] of entries) {
+        if (limit <= 0) break;
+        let and = RoaringBitmap.and(bitmaps.get(k), bitmap);
+        let size = and.size;
+        // debug('RoaringBitmap.and', limit, and.size, k, ret.length);
+        if (size && !v) {
+            let iterator = and.iterator();
+            // debug('while (1), limit', limit)
+            while (limit > 0) {
+                let {value, done} = iterator.next();
+                if (done) break;
+                ret.push(value);
+                limit -= 1;
+            }
+            // debug('while (2), limit', limit)
+        } else if (size) {
+            let r = getSortValues(v, bitmaps, bitmap, limit, desc);
+            limit -= r.length;
+            // debug('getSortValues, limit', limit)
+            ret = ret.concat(r);
         }
+        and.clear();
     }
+    return ret;
 }
 
 function getBitmap(index, query) {
@@ -358,10 +355,10 @@ function getBitmap(index, query) {
             return getOrBitmap(index, queries);
         }
         let {type, bitmaps, min, max} = storage[index].fields[field];
-        if (type === 'STRING') {
+        if (type == C.TYPE_STRING) {
             return bitmaps[value] || new RoaringBitmap();
         }
-        if (type === 'FULLTEXT') {
+        if (type == C.TYPE_FULLTEXT) {
             let words = Array.isArray(value) ? value : _.stem(value);
             if (!words.length) {
                 return new RoaringBitmap();
@@ -372,7 +369,7 @@ function getBitmap(index, query) {
             let queries = words.map((v) => ({values: [v], field}));
             return getAndBitmap(index, queries);
         }
-        if (type === C.TYPE_INTEGER) {
+        if (type == C.TYPE_INTEGER) {
             if (!Array.isArray(value)) {
                 value = [value, value];
             }

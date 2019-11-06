@@ -17,15 +17,12 @@ const mem = () => Math.round(process.memoryUsage().rss / 1e6) + 'MB';
     avg = String(Math.round(1000 * avg / total));
     debug(mem(), _.sprintf('POPULATED. AVG: %sms / 1000', avg));
     avg = Number(new Date());
-    for (let i = 0; i < total * 1000; i++) {
+    for (let i = 0; i < total; i++) {
         let r1, r2;
         do {
             [r1, r2] = [_.rand(1, 1e3), _.rand(1, 1e3)];
         } while (r2 < r1);
-        if (i % 100000 == 0) {
-            debug(mem());
-        }
-        await bitmap.execute('search i1 @f1:[?,?]', r1, r2);
+        await bitmap.execute('search i1 @f1:[?,?]' + (_.rand(0, 1) ? ' sortby f1' : ''), r1, r2);
     }
     avg = Number(new Date()) - avg;
     avg = String(Math.round(1000 * avg / total));

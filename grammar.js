@@ -147,6 +147,14 @@ class Grammar {
         return string;
     }
 
+    getCharacter() {
+        let string = this.getValue();
+        if (string.length != 1) {
+            throw _.sprintf(C.EXPECTED_SINGLE_CHARACTER_ERROR, string);
+        }
+        return string;
+    }
+
     tryKeyword(kw) {
         if (this.strings.length && String(this.strings[0]).toUpperCase() == kw) {
             this.strings.shift();
@@ -198,6 +206,11 @@ class Grammar {
                         }
                     } else if (field.type == C.TYPE_FOREIGNKEY) {
                         field.fk = this.getIdent();
+                    } else if (field.type == C.TYPE_ARRAY) {
+                        field.separator = ',';
+                        if (this.tryKeyword('SEPARATOR')) {
+                            field.separator = this.getCharacter();
+                        }
                     }
                     command.fields.push(field);
                 }

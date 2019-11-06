@@ -125,7 +125,7 @@ function CREATE({index, fields}) {
             return reject(_.sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
         }
         let f = {};
-        for (let {field, type, min, max, sortable, fk} of fields) {
+        for (let {field, type, min, max, sortable, fk, separator} of fields) {
             let bitmaps = {};
             let sortmap;
             if (type == C.TYPE_INTEGER) {
@@ -151,6 +151,7 @@ function CREATE({index, fields}) {
                 ...(sortable !== undefined ? {sortable} : {}),
                 ...(sortmap !== undefined ? {sortmap} : {}),
                 ...(fk !== undefined ? {fk} : {}),
+                ...(separator !== undefined ? {separator} : {}),
             };
         }
         fields = f;
@@ -204,7 +205,7 @@ function ADD({index, id, values}) {
             return reject(_.sprintf(C.FOREIGNKEY_ID_OUT_OF_RANGE_ERROR, found.field));
         }
         for (let {value, field} of values) {
-            let {type, bitmaps, min, max, sortable, sortmap, fk} = fields[field];
+            let {type, bitmaps, min, max, sortable, sortmap, fk, separator} = fields[field];
             if (type == C.TYPE_INTEGER) {
                 value = Number(value);
                 let zvalue = value - min;
@@ -244,6 +245,18 @@ function ADD({index, id, values}) {
                 }
                 bitmaps[value].add(id);
                 fk.id2fk[id] = value;
+                continue;
+            }
+            if (type == C.TYPE_ARRAY) {
+                value = value.split(separator).map(v => v.trim());
+                for (let v of value) {
+                    if (!bitmaps[v]) {
+                        bitmaps[v] = new RoaringBitmap();
+                        bitmaps[v].persist = true;
+                    }
+                    bitmaps[v].add(id);
+                }
+                continue;
             }
         }
         ids.add(id);
@@ -348,21 +361,17 @@ function getSortValues(map, bitmaps, bitmap, limit, desc) {
         if (limit <= 0) break;
         let and = RoaringBitmap.and(bitmaps.get(k), bitmap);
         let size = and.size;
-        // debug('RoaringBitmap.and', limit, and.size, k, ret.length);
         if (size && !v) {
             let iterator = and.iterator();
-            // debug('while (1), limit', limit)
             while (limit > 0) {
                 let {value, done} = iterator.next();
                 if (done) break;
                 ret.push(value);
                 limit -= 1;
             }
-            // debug('while (2), limit', limit)
         } else if (size) {
             let r = getSortValues(v, bitmaps, bitmap, limit, desc);
             limit -= r.length;
-            // debug('getSortValues, limit', limit)
             ret = ret.concat(r);
         }
         and.clear();
@@ -411,7 +420,7 @@ function getBitmap(index, query) {
         if (!field) {
             let fields = Object.entries(storage[index].fields);
             fields = fields.filter(([k, v]) => ['FULLTEXT'].includes(v.type));
-            fields = fields.map(([k, v]) => k);
+            fields = fields.map(([k]) => k);
             if (!fields.length) {
                 return new RoaringBitmap();
             }
@@ -419,7 +428,7 @@ function getBitmap(index, query) {
             return getOrBitmap(index, queries);
         }
         let {type, bitmaps, min, max} = storage[index].fields[field];
-        if (type == C.TYPE_STRING) {
+        if ([C.TYPE_STRING, C.TYPE_ARRAY].includes(type)) {
             return bitmaps[value] || new RoaringBitmap();
         }
         if (type == C.TYPE_FULLTEXT) {
@@ -430,7 +439,7 @@ function getBitmap(index, query) {
             if (words.length == 1) {
                 return bitmaps[words[0]] || new RoaringBitmap();
             }
-            let queries = words.map((v) => ({values: [v], field}));
+            let queries = words.map(v => ({values: [v], field}));
             return getAndBitmap(index, queries);
         }
         if (type == C.TYPE_INTEGER) {

@@ -154,6 +154,28 @@ test('bitmap - FULLTEXT', async () => {
     await bitmap.execute('drop index');
 });
 
+test('bitmap - ARRAY', async () => {
+    let res;
+    let id = 1;
+    await bitmap.execute('create index fields f1 array separator |');
+    for (let v of ['hello | world', 'foo|bar', ' boys|girls ']) {
+        await bitmap.execute('add index ? values f1 ?', id++, v);
+    }
+    let cases = {
+        '@f1:hello': [1],
+        '@f1:world @f1:hello': [1],
+        '@f1:foo': [2],
+        '@f1:foo | @f1:hello': [1, 2],
+        '(@f1:world | @f1:foo) & (@f1:bar | @f1:one)': [2],
+        '@f1:boys @f1:girls': [3],
+    };
+    for (let [q, f] of Object.entries(cases)) {
+        [, ...res] = await bitmap.execute('search index ?', q);
+        expect(res).toStrictEqual(f);
+    }
+    await bitmap.execute('drop index');
+});
+
 test('bitmap - SORTABLE', async () => {
     let res;
     let id = 1;

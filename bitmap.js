@@ -111,12 +111,15 @@ function LIST() {
 
 function STAT() {
     let stat = {};
-    stat.heap = Math.round(process.memoryUsage().rss / 1e6) + 'MB';
+    stat.heap = Math.round(process.memoryUsage().rss / 1E6) + 'MB';
     return Object.entries(stat);
 }
 
 function CREATE({index, fields}) {
     return new Promise((resolve, reject) => {
+        if (!index) {
+            return reject(C.INVALID_INDEX_ERROR);
+        }
         if (storage[index]) {
             return reject(_.sprintf(C.INDEX_EXISTS_ERROR, index));
         }
@@ -164,6 +167,9 @@ function CREATE({index, fields}) {
 
 function DROP({index}) {
     return new Promise((resolve, reject) => {
+        if (!index) {
+            return reject(C.INVALID_INDEX_ERROR);
+        }
         if (!storage[index]) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
@@ -174,6 +180,9 @@ function DROP({index}) {
 
 function ADD({index, id, values}) {
     return new Promise((resolve, reject) => {
+        if (!index) {
+            return reject(C.INVALID_INDEX_ERROR);
+        }
         if (!storage[index]) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
@@ -268,6 +277,9 @@ function ADD({index, id, values}) {
 
 function SEARCH({index, query, sortby, desc, limit}) {
     return new Promise((resolve, reject) => {
+        if (!index) {
+            return reject(C.INVALID_INDEX_ERROR);
+        }
         if (!storage[index]) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }

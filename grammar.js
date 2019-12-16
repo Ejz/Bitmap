@@ -187,7 +187,7 @@ class Grammar {
                 command.index = this.getIdent();
                 continue;
             }
-            if (['DROP'].includes(command.action)) {
+            if (['DROP', 'CURSOR'].includes(command.action)) {
                 throw _.sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
             }
             if (command.action == 'CREATE') {
@@ -252,6 +252,9 @@ class Grammar {
                         [off, lim] = [lim, this.getPositiveOrZeroInteger()];
                     }
                     command.limit = [off, lim];
+                } else if (this.tryKeyword('CURSOR')) {
+                    let lim = this.getPositiveInteger();
+                    command.limit = ['CURSOR', lim];
                 }
                 continue;
             }

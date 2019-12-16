@@ -4,6 +4,11 @@ const C = require('./constants');
 const _ = require('./helpers');
 const debug = require('debug')('bitmap');
 
+const cursors = {};
+const storage = {};
+const SORT_DIV = 3;
+const grammar = new Grammar();
+
 RoaringBitmap.not = (bitmap, min, max) => {
     bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
     bitmap.flipRange(min, max + 1);
@@ -66,31 +71,19 @@ RoaringBitmap.andNot = (bitmap, not) => {
     return bitmap;
 };
 
-const grammar = new Grammar();
-
-module.exports = {
-    PING,
-    CREATE,
-    DROP,
-    ADD,
-    SEARCH,
-    LIST,
-    STAT,
-    execute,
-    getSortMap,
-    getSortSlices,
-};
-
-const storage = {};
-
-const SORT_DIV = 3;
-
 function hex() {
     let hex;
     do {
         hex = _.generateHex();
     } while (Number(hex.substring(0, 1)));
     return hex;
+}
+
+function cursorTimeout(cursor) {
+    if (!cursors[cursor].bitmap.persist) {
+        cursors[cursor].bitmap.clear();
+    }
+    delete cursors[cursor];
 }
 
 async function execute(strings, ...args) {
@@ -175,6 +168,35 @@ function DROP({index}) {
         }
         delete storage[index];
         return resolve(C.DROP_SUCCESS);
+    });
+}
+
+function CURSOR({index: cursor}) {
+    return new Promise((resolve, reject) => {
+        if (!cursor || !cursors[cursor]) {
+            return reject(C.INVALID_CURSOR_ERROR);
+        }
+        let {tid, bitmap, lim, sortby, iterator} = cursors[cursor];
+        clearTimeout(tid);
+        if (sortby) throw new Error();
+        iterator = iterator || bitmap.iterator();
+        let values = [];
+        for (let i = 0; i < lim; i++) {
+            let {value, done} = iterator.next();
+            if (done) {
+                iterator = null;
+                break;
+            }
+            values.push(value);
+        }
+        if (iterator) {
+            tid = setTimeout(cursorTimeout, C.CURSOR_TIMEOUT, cursor);
+            cursors[cursor].tid = tid;
+            cursors[cursor].iterator = iterator;
+        } else {
+            cursorTimeout(cursor);
+        }
+        return resolve(values);
     });
 }
 
@@ -289,9 +311,20 @@ function SEARCH({index, query, sortby, desc, limit}) {
             return reject(_.sprintf(e, sortby));
         }
         let [off, lim] = limit;
+        let cursor = off == 'CURSOR' ? hex() : false;
+        off = cursor ? 0 : off;
         lim += off;
         let bitmap = getBitmap(index, query);
-        let ret = [bitmap.size];
+        let {size} = bitmap;
+        let ret = [size];
+        if (cursor) {
+            if (size > 0) {
+                ret.push(cursor);
+                let tid = setTimeout(cursorTimeout, C.CURSOR_TIMEOUT, cursor);
+                cursors[cursor] = {tid, bitmap, lim, sortby};
+            }
+            return resolve(ret);
+        }
         if (sortby) {
             let {map, bitmaps} = fields[sortby].sortmap;
             let persist = !!bitmap.persist;
@@ -522,3 +555,17 @@ function getNotBitmap(index, [query]) {
     let {min, max} = storage[index];
     return RoaringBitmap.not(query, min, max);
 }
+
+module.exports = {
+    PING,
+    CREATE,
+    CURSOR,
+    DROP,
+    ADD,
+    SEARCH,
+    LIST,
+    STAT,
+    execute,
+    getSortMap,
+    getSortSlices,
+};

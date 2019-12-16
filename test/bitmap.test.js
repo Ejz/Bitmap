@@ -267,27 +267,17 @@ test('bitmap - FOREIGNKEY', async () => {
     await bitmap.execute('drop i3');
 });
 
-// test('bitmap - integers', async () => {
-//     let res;
-//     let id = 1;
-//     await bitmap.createIndex({
-//         index: 'index', fields: [
-//             {field: 'f1', type: 'INTEGERS'},
-//         ]
-//     });
-//     await bitmap.addRecordToIndex({index: 'index', id: id++, values: [
-//         {field: 'f1', value: '+1,-1,2b,b3,7'},
-//     ]});
-//     await bitmap.addRecordToIndex({index: 'index', id: id++, values: [
-//         {field: 'f1', value: '1,10,2'},
-//     ]});
-//     res = await bitmap.searchIndex({index: 'index', query: '@f1:1'});
-//     res.shift()
-//     expect(res).toStrictEqual([1, 2]);
-//     res = await bitmap.searchIndex({index: 'index', query: '@f1:2'});
-//     res.shift()
-//     expect(res).toStrictEqual([2]);
-//     await bitmap.dropIndex({index: 'index'});
-// });
-
-
+test('bitmap - CURSOR', async () => {
+    let res, cursor, lim;
+    await bitmap.execute('create i1 fields f1 integer min 1 max 10');
+    await bitmap.execute('add i1 ?', 1);
+    await bitmap.execute('add i1 ?', 2);
+    await bitmap.execute('add i1 ?', 3);
+    [lim, cursor] = await bitmap.execute('search i1 * cursor 2');
+    expect(lim).toBe(3);
+    res = await bitmap.execute('cursor ?', cursor);
+    expect(res).toStrictEqual([1, 2]);
+    res = await bitmap.execute('cursor ?', cursor);
+    expect(res).toStrictEqual([3]);
+    await bitmap.execute('drop i1');
+});

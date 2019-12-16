@@ -153,6 +153,11 @@ function equal(a, b) {
     return JSON.stringify(a) == JSON.stringify(b);
 }
 
+function toBoolean(v) {
+    v = ['true', '1'].includes(String(v).toLowerCase());
+    return v ? '1' : '0';
+}
+
 module.exports = {
     equal,
     to,
@@ -167,4 +172,5 @@ module.exports = {
     sprintf,
     castToArray,
     isInteger,
+    toBoolean,
 };

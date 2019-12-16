@@ -258,6 +258,15 @@ function ADD({index, id, values}) {
                 bitmaps[value].add(id);
                 continue;
             }
+            if (type == C.TYPE_BOOLEAN) {
+                value = _.toBoolean(value);
+                if (!bitmaps[value]) {
+                    bitmaps[value] = new RoaringBitmap();
+                    bitmaps[value].persist = true;
+                }
+                bitmaps[value].add(id);
+                continue;
+            }
             if (type == C.TYPE_FULLTEXT) {
                 for (let v of _.stem(value)) {
                     if (!bitmaps[v]) {
@@ -473,6 +482,10 @@ function getBitmap(index, query) {
             return getOrBitmap(index, queries);
         }
         let {type, bitmaps, min, max} = storage[index].fields[field];
+        if (type === C.TYPE_BOOLEAN) {
+            value = _.toBoolean(value);
+            return bitmaps[value] || new RoaringBitmap();
+        }
         if ([C.TYPE_STRING, C.TYPE_ARRAY].includes(type)) {
             return bitmaps[value] || new RoaringBitmap();
         }

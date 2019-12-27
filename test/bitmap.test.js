@@ -262,6 +262,8 @@ test('bitmap - FOREIGNKEY', async () => {
         let [, ...res] = await bitmap.execute('search i1 ?', q);
         expect(res).toStrictEqual(f);
     }
+    [, ...res] = await bitmap.execute('search i2 ?', '@i1:1');
+    expect(res).toStrictEqual([1, 3]);
     await bitmap.execute('drop i1');
     await bitmap.execute('drop i2');
     await bitmap.execute('drop i3');

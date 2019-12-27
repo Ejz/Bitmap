@@ -527,6 +527,13 @@ function getBitmap(index, query) {
             }
             return RoaringBitmap.andNot(bitmaps[to], bitmaps[from - 1]);
         }
+        if (type === C.TYPE_FOREIGNKEY) {
+            if (!_.isInteger(value)) {
+                return new RoaringBitmap();
+            }
+            value = Number(value);
+            return bitmaps[value] || new RoaringBitmap();
+        }
     }
     let {op, queries} = query;
     op = op || '&';

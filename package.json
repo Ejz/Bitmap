@@ -19,5 +19,8 @@
     },
     "devDependencies": {
         "jest": "^24.9.0"
+    },
+    "bin": {
+        "bitmap_server": "./bitmap_server.js"
     }
 }

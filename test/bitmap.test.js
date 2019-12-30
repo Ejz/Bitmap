@@ -154,6 +154,26 @@ test('bitmap - FULLTEXT', async () => {
     await bitmap.execute('drop index');
 });
 
+test('bitmap - BOOLEAN', async () => {
+    let res;
+    let id = 1;
+    await bitmap.execute('create index fields f1 boolean');
+    for (let v of ['1', 'true', 'false']) {
+        await bitmap.execute('add index ? values f1 ?', id++, v);
+    }
+    let cases = {
+        '@f1:1': [1, 2],
+        '@f1:True': [1, 2],
+        '@f1:0': [3],
+        '@f1:False': [3],
+    };
+    for (let [q, f] of Object.entries(cases)) {
+        [, ...res] = await bitmap.execute('search index ?', q);
+        expect(res).toStrictEqual(f);
+    }
+    await bitmap.execute('drop index');
+});
+
 test('bitmap - ARRAY', async () => {
     let res;
     let id = 1;

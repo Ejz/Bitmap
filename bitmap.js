@@ -103,8 +103,13 @@ function LIST() {
 }
 
 function STAT() {
+    let memoryUsage = process.memoryUsage();
     let stat = {};
-    stat.heap = Math.round(process.memoryUsage().rss / 1E6) + 'MB';
+    for (let key of Object.keys(memoryUsage)) {
+        memoryUsage[key] = Math.round(memoryUsage[key] / 1E6);
+        let Key = key.charAt(0).toUpperCase() + key.slice(1);
+        stat['memoryUsage' + Key] = memoryUsage[key];
+    }
     return Object.entries(stat);
 }
 

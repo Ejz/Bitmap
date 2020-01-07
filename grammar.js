@@ -180,7 +180,7 @@ class Grammar {
                 command.action = this.getAction();
                 continue;
             }
-            if (['PING', 'LIST'].includes(command.action)) {
+            if (['PING', 'LIST', 'STAT'].includes(command.action)) {
                 throw _.sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
             }
             if (!command.index) {

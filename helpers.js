@@ -57,9 +57,11 @@ function freader(socket) {
         function finalize() {
             socket.off('data', cb_data);
             socket.off('end', cb_end);
+            socket.off('error', cb_end);
         }
         socket.on('data', cb_data);
         socket.on('end', cb_end);
+        socket.on('error', cb_end);
         cb_data();
     });
 }

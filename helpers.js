@@ -68,14 +68,14 @@ function freader(socket) {
 
 function toResp(message) {
     let resp = [];
-    if (Array.isArray(message)) {
+    if (isArray(message)) {
         resp.push('*' + message.length + CRLF);
         message.forEach((message) => {
             resp.push(toResp(message));
         });
     } else if (typeof(message) === 'number') {
         resp.push(':' + message + CRLF);
-    } else if (typeof(message) === 'string') {
+    } else if (isString(message)) {
         if (
             message.indexOf(CR) === -1 &&
             message.indexOf(LF) === -1
@@ -160,6 +160,20 @@ function toBoolean(v) {
     return v ? '1' : '0';
 }
 
+function isString(f) {
+    return typeof f === 'string';
+}
+
+function isFunction(f) {
+    return typeof f === 'function';
+}
+
+let isArray = Array.isArray;
+
+function isObject(o) {
+    return (!!o) && (o.constructor === Object);
+}
+
 module.exports = {
     equal,
     to,
@@ -175,4 +189,8 @@ module.exports = {
     castToArray,
     isInteger,
     toBoolean,
+    isString,
+    isFunction,
+    isArray,
+    isObject,
 };

@@ -295,11 +295,23 @@ test('bitmap - CURSOR', async () => {
     await bitmap.execute('add i1 ?', 1);
     await bitmap.execute('add i1 ?', 2);
     await bitmap.execute('add i1 ?', 3);
-    [lim, cursor] = await bitmap.execute('search i1 * cursor 2');
+    [lim, cursor] = await bitmap.execute('search i1 * withcursor');
     expect(lim).toBe(3);
-    res = await bitmap.execute('cursor ?', cursor);
+    res = await bitmap.execute('cursor ? limit 2', cursor);
     expect(res).toStrictEqual([1, 2]);
     res = await bitmap.execute('cursor ?', cursor);
     expect(res).toStrictEqual([3]);
     await bitmap.execute('drop i1');
+});
+
+test('bitmap - STAT', async () => {
+    let res, cursor, lim;
+    await bitmap.execute('create a');
+    await bitmap.execute('add a 1');
+    res = await bitmap.execute('stat');
+    expect(res[0]).toBe('rss');
+    expect(res[1] > 0).toBe(true);
+    res = await bitmap.execute('stat a');
+    expect(res[0]).toBe('size');
+    expect(res[1] > 0).toBe(true);
 });

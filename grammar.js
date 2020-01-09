@@ -180,14 +180,14 @@ class Grammar {
                 command.action = this.getAction();
                 continue;
             }
-            if (['PING', 'LIST', 'STAT'].includes(command.action)) {
+            if (['PING', 'LIST'].includes(command.action)) {
                 throw _.sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
             }
             if (!command.index) {
                 command.index = this.getIdent();
                 continue;
             }
-            if (['DROP', 'CURSOR'].includes(command.action)) {
+            if (['DROP', 'STAT'].includes(command.action)) {
                 throw _.sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
             }
             if (command.action == 'CREATE') {
@@ -252,10 +252,13 @@ class Grammar {
                         [off, lim] = [lim, this.getPositiveOrZeroInteger()];
                     }
                     command.limit = [off, lim];
-                } else if (this.tryKeyword('CURSOR')) {
-                    let lim = this.getPositiveInteger();
-                    command.limit = ['CURSOR', lim];
+                } else if (this.tryKeyword('WITHCURSOR')) {
+                    command.limit = 'WITHCURSOR';
                 }
+                continue;
+            }
+            if (command.action == 'CURSOR' && !command.limit && this.tryKeyword('LIMIT')) {
+                command.limit = this.getPositiveOrZeroInteger();
                 continue;
             }
             throw _.sprintf(C.SYNTAX_ERROR, this.strings.join(' '));

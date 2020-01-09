@@ -2,7 +2,6 @@ const RoaringBitmap = require('roaring/RoaringBitmap32');
 const Grammar = require('./grammar');
 const C = require('./constants');
 const _ = require('./helpers');
-const debug = require('debug')('bitmap');
 
 const cursors = {};
 const storage = {};
@@ -102,15 +101,27 @@ function LIST() {
     return Object.keys(storage);
 }
 
-function STAT() {
-    let memoryUsage = process.memoryUsage();
-    let stat = {};
-    for (let key of Object.keys(memoryUsage)) {
-        memoryUsage[key] = Math.round(memoryUsage[key] / 1E6);
-        let Key = key.charAt(0).toUpperCase() + key.slice(1);
-        stat['memoryUsage' + Key] = memoryUsage[key];
-    }
-    return Object.entries(stat);
+function STAT({index}) {
+    return new Promise((resolve, reject) => {
+        if (!index) {
+            let reply = [];
+            let memoryUsage = process.memoryUsage();
+            for (let key of Object.keys(memoryUsage)) {
+                reply.push(key, Math.round(memoryUsage[key] / 1E6));
+            }
+            return resolve(reply);
+        }
+        if (!storage[index]) {
+            return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
+        }
+        let ids = storage[index].ids;
+        let size = ids.size;
+        return resolve([
+            'size', size,
+            'min', size > 0 ? ids.minimum() : 0,
+            'max', size > 0 ? ids.maximum() : 0,
+        ]);
+    });
 }
 
 function CREATE({index, fields}) {
@@ -176,17 +187,18 @@ function DROP({index}) {
     });
 }
 
-function CURSOR({index: cursor}) {
+function CURSOR({index: cursor, limit}) {
     return new Promise((resolve, reject) => {
         if (!cursor || !cursors[cursor]) {
             return reject(C.INVALID_CURSOR_ERROR);
         }
-        let {tid, bitmap, lim, sortby, iterator} = cursors[cursor];
+        let {tid, bitmap, sortby, iterator} = cursors[cursor];
         clearTimeout(tid);
         if (sortby) throw new Error();
         iterator = iterator || bitmap.iterator();
         let values = [];
-        for (let i = 0; i < lim; i++) {
+        limit = limit || 100;
+        for (let i = 0; i < limit; i++) {
             let {value, done} = iterator.next();
             if (done) {
                 iterator = null;
@@ -324,9 +336,8 @@ function SEARCH({index, query, sortby, desc, limit}) {
             let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
             return reject(_.sprintf(e, sortby));
         }
-        let [off, lim] = limit;
-        let cursor = off == 'CURSOR' ? hex() : false;
-        off = cursor ? 0 : off;
+        let cursor = (_.isString(limit) && limit == 'WITHCURSOR') ? hex() : false;
+        let [off, lim] = cursor ? [0, 0] : limit;
         lim += off;
         let bitmap = getBitmap(index, query);
         let {size} = bitmap;
@@ -335,7 +346,7 @@ function SEARCH({index, query, sortby, desc, limit}) {
             if (size > 0) {
                 ret.push(cursor);
                 let tid = setTimeout(cursorTimeout, C.CURSOR_TIMEOUT, cursor);
-                cursors[cursor] = {tid, bitmap, lim, sortby};
+                cursors[cursor] = {tid, bitmap, sortby};
             }
             return resolve(ret);
         }
@@ -350,7 +361,9 @@ function SEARCH({index, query, sortby, desc, limit}) {
             let iterator = bitmap.iterator();
             for (let i = 0; i < lim; i++) {
                 let {value, done} = iterator.next();
-                if (done) break;
+                if (done) {
+                    break;
+                }
                 if (off <= i) {
                     ret.push(value);
                 }

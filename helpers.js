@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
 const crypto = require('crypto');
 const snowball = require('node-snowball');
 const C = require('./constants');
@@ -16,9 +19,9 @@ function md5(string) {
     return crypto.createHash('md5').update(string).digest('hex');
 }
 
-function rand(min, max) {
-    min = parseInt(min);
-    max = parseInt(max);
+function rand(min = 0, max = Number.MAX_SAFE_INTEGER) {
+    min = Number(min);
+    max = Number(max);
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
@@ -160,6 +163,8 @@ function toBoolean(v) {
     return v ? '1' : '0';
 }
 
+/* IS_* FUNCTIONS */
+
 function isString(f) {
     return typeof f === 'string';
 }
@@ -172,6 +177,78 @@ let isArray = Array.isArray;
 
 function isObject(o) {
     return (!!o) && (o.constructor === Object);
+}
+
+function isDirectory(dir) {
+    try {
+        return fs.lstatSync(dir).isDirectory();
+    } catch (e) {
+        return false;
+    }
+}
+
+function isFile(file) {
+    try {
+        let stat = fs.lstatSync(file);
+        return stat.isFile() || stat.isSymbolicLink();
+    } catch (e) {
+        return false;
+    }
+}
+
+/* FS OPERATIONS */
+
+function readFile(file) {
+    if (!isFile(file)) {
+        return;
+    }
+    return String(fs.readFileSync(file));
+}
+
+function writeFile(file, content) {
+    fs.mkdirSync(path.dirname(file), {recursive: true});
+    fs.writeFileSync(file, content);
+}
+
+function appendFile(file, content) {
+    fs.appendFileSync(file, content);
+}
+
+function renameDirectory(dir1, dir2) {
+    if (!isDirectory(dir1) || isDirectory(dir2)) {
+        return;
+    }
+    fs.renameSync(dir1, dir2);
+}
+
+function readDirectory(dir) {
+    let files = isDirectory(dir) ? fs.readdirSync(dir) : [];
+    return files.map(f => dir + '/' + f);
+}
+
+function rm(smth) {
+    if (isFile(smth)) {
+        fs.unlinkSync(smth);
+        return;
+    }
+    if (isDirectory(smth)) {
+        readDirectory(smth).map(rm);
+        fs.rmdirSync(smth);
+    }
+}
+
+function readLines(file, handle) {
+    return new Promise(resolve => {
+        if (!isFile(file)) {
+            return resolve();
+        }
+        let rl = readline.createInterface({
+            input: fs.createReadStream(file),
+            crlfDelay: Infinity,
+        });
+        rl.on('line', handle);
+        rl.on('close', resolve);
+    });
 }
 
 module.exports = {
@@ -193,4 +270,13 @@ module.exports = {
     isFunction,
     isArray,
     isObject,
+    isDirectory,
+    isFile,
+    readFile,
+    writeFile,
+    appendFile,
+    renameDirectory,
+    readDirectory,
+    rm,
+    readLines,
 };

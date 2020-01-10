@@ -180,19 +180,22 @@ class Grammar {
                 command.action = this.getAction();
                 continue;
             }
-            if (['PING', 'LIST'].includes(command.action)) {
+            if (['PING', 'LIST', 'SAVEALL'].includes(command.action)) {
                 throw _.sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
             }
             if (!command.index) {
                 command.index = this.getIdent();
                 continue;
             }
-            if (['DROP', 'STAT'].includes(command.action)) {
+            if (['DROP', 'STAT', 'SAVE'].includes(command.action)) {
                 throw _.sprintf(C.INVALID_COMMAND_ARGUMENTS_ERROR, command.action);
             }
-            if (command.action == 'CREATE') {
+            if (command.action == 'CREATE' && !command.fields) {
                 command.fields = [];
-                this.expectKeyword('FIELDS');
+                command.persist = this.tryKeyword('PERSIST');
+                if (!this.tryKeyword('FIELDS')) {
+                    continue;
+                }
                 while (this.strings.length) {
                     let field = {field: this.getIdent(), type: this.getType()};
                     if (field.type == C.TYPE_INTEGER) {
@@ -223,7 +226,7 @@ class Grammar {
                 command.id = this.getPositiveInteger();
                 continue;
             }
-            if (command.action == 'ADD') {
+            if (command.action == 'ADD' && !command.values) {
                 command.values = [];
                 this.expectKeyword('VALUES');
                 while (this.strings.length) {
@@ -259,6 +262,10 @@ class Grammar {
             }
             if (command.action == 'CURSOR' && !command.limit && this.tryKeyword('LIMIT')) {
                 command.limit = this.getPositiveOrZeroInteger();
+                continue;
+            }
+            if (command.action == 'RENAME' && !command.name) {
+                command.name = this.getIdent();
                 continue;
             }
             throw _.sprintf(C.SYNTAX_ERROR, this.strings.join(' '));

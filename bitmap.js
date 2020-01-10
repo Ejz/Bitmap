@@ -124,7 +124,7 @@ function STAT({index}) {
     });
 }
 
-function CREATE({index, fields}) {
+function CREATE({index, fields, persist}) {
     return new Promise((resolve, reject) => {
         if (!index) {
             return reject(C.INVALID_INDEX_ERROR);
@@ -166,10 +166,18 @@ function CREATE({index, fields}) {
                 ...(separator !== undefined ? {separator} : {}),
             };
         }
-        fields = f;
         let ids = new RoaringBitmap();
         ids.persist = true;
-        storage[index] = {fields, ids};
+        storage[index] = {fields: f, ids, persist};
+        if (persist) {
+            let dir = C.DUMPDIR + '/' + index;
+            _.rm(dir);
+            _.writeFile(
+                dir + '/CREATE',
+                JSON.stringify({fields}) + '\n'
+            );
+            _.writeFile(dir + '/CHANGES', '');
+        }
         return resolve(C.CREATE_SUCCESS);
     });
 }
@@ -184,6 +192,54 @@ function DROP({index}) {
         }
         delete storage[index];
         return resolve(C.DROP_SUCCESS);
+    });
+}
+
+function RENAME({index, name}) {
+    return new Promise((resolve, reject) => {
+        if (!index || !name) {
+            return reject(C.INVALID_INDEX_ERROR);
+        }
+        if (index == name) {
+            return reject(C.SAME_NAME_ERROR);
+        }
+        if (!storage[index]) {
+            return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
+        }
+        if (storage[name]) {
+            return reject(_.sprintf(C.INDEX_EXISTS_ERROR, name));
+        }
+        storage[name] = storage[index];
+        delete storage[index];
+        if (storage[name].persist) {
+            _.renameDirectory(C.DUMPDIR + '/' + index, C.DUMPDIR + '/' + name);
+        }
+        return resolve(C.RENAME_SUCCESS);
+    });
+}
+
+function LOAD({index}) {
+    return new Promise(async (resolve, reject) => {
+        if (!index) {
+            return reject(C.INVALID_INDEX_ERROR);
+        }
+        if (storage[index]) {
+            return reject(_.sprintf(C.INDEX_EXISTS_ERROR, index));
+        }
+        let dir = C.DUMPDIR + '/' + index;
+        if (!_.isDirectory(dir)) {
+            return reject(C.LOAD_ERROR);
+        }
+        await _.readLines(dir + '/CREATE', async line => {
+            let {fields} = JSON.parse(line);
+            await CREATE({index, fields});
+        });
+        await _.readLines(dir + '/CHANGES', async line => {
+            let {id, values} = JSON.parse(line);
+            await ADD({index, id, values});
+        });
+        storage[index].persist = true;
+        return resolve(C.LOAD_SUCCESS);
     });
 }
 
@@ -226,7 +282,7 @@ function ADD({index, id, values}) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
         values = values || [];
-        let {fields, ids} = storage[index];
+        let {fields, ids, persist} = storage[index];
         if (ids.has(id)) {
             return reject(_.sprintf(C.ID_EXISTS_ERROR, id));
         }
@@ -319,6 +375,13 @@ function ADD({index, id, values}) {
         ids.add(id);
         storage[index].min = Math.min(...[id, storage[index].min].filter(Number));
         storage[index].max = Math.max(...[id, storage[index].max].filter(Number));
+        if (persist) {
+            let dir = C.DUMPDIR + '/' + index;
+            _.appendFile(
+                dir + '/CHANGES',
+                JSON.stringify({id, values}) + '\n'
+            );
+        }
         return resolve(C.ADD_SUCCESS);
     });
 }
@@ -603,6 +666,8 @@ module.exports = {
     SEARCH,
     LIST,
     STAT,
+    RENAME,
+    LOAD,
     execute,
     getSortMap,
     getSortSlices,

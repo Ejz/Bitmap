@@ -1,4 +1,5 @@
 const _ = require('../helpers');
+const C = require('../constants');
 
 const CRLF = '\r\n';
 
@@ -55,4 +56,35 @@ test('isInteger', () => {
     expect(_.isInteger('1000')).toBe(true);
     expect(_.isInteger('1000E1000')).toBe(false);
     expect(_.isInteger('1' + '0'.repeat(30))).toBe(false);
+});
+
+test('isDirectory', () => {
+    expect(_.isDirectory()).toBe(false);
+    expect(_.isDirectory(false)).toBe(false);
+    expect(_.isDirectory(true)).toBe(false);
+    expect(_.isDirectory('')).toBe(false);
+    expect(_.isDirectory(undefined)).toBe(false);
+    expect(_.isDirectory({})).toBe(false);
+    expect(_.isDirectory([])).toBe(false);
+});
+
+test('readDirectory', () => {
+    expect(_.readDirectory(C.TMPDIR).includes('.')).toBe(false);
+    expect(_.readDirectory(C.TMPDIR).includes('..')).toBe(false);
+});
+
+test('rm', () => {
+    let dir = C.TMPDIR + '/test' + _.rand();
+    _.writeFile(dir + '/_/_/_/_/_.txt', '_');
+    expect(_.isDirectory(dir)).toBe(true);
+    _.rm(dir);
+    expect(_.isDirectory(dir)).toBe(false);
+});
+
+test('readLines', async () => {
+    let file = C.TMPDIR + '/test' + _.rand();
+    _.writeFile(file, 'a\n\nb\n\n');
+    let res = [];
+    await _.readLines(file, line => res.push(line));
+    expect(res).toStrictEqual(['a', '', 'b', '']);
 });

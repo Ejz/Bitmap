@@ -21,7 +21,7 @@ test('grammar - command - create', async () => {
     expect(r).toStrictEqual({action: 'CREATE', index: 'index'});
     //
     [r, e] = await parse('create index unknown');
-    expect(e).toMatch(/unexpected/i);
+    expect(e).toMatch(/unknown/i);
     //
     [r, e] = await parse('create index fields');
     expect(e).toMatch(/no fields/i);
@@ -31,6 +31,7 @@ test('grammar - command - create', async () => {
         action: 'CREATE',
         index: 'index',
         fields: [{field: 'string', type: 'STRING'}],
+        persist: false,
     });
     //
     [r, e] = await parse('create index fields string1 string string2 string string3 string');

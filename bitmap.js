@@ -168,7 +168,7 @@ function CREATE({index, fields, persist}) {
         }
         let ids = new RoaringBitmap();
         ids.persist = true;
-        storage[index] = {fields: f, ids, persist};
+        storage[index] = {fields: f, ids, persist, scores: {}};
         if (persist) {
             let dir = C.DUMPDIR + '/' + index;
             _.rm(dir);
@@ -243,17 +243,18 @@ function LOAD({index}) {
     });
 }
 
-function CURSOR({index: cursor, limit}) {
+function CURSOR({index: cursor, limit, withScore}) {
     return new Promise((resolve, reject) => {
         if (!cursor || !cursors[cursor]) {
             return reject(C.INVALID_CURSOR_ERROR);
         }
-        let {tid, bitmap, sortby, iterator} = cursors[cursor];
+        let {tid, bitmap, sortby, iterator, index} = cursors[cursor];
         clearTimeout(tid);
         if (sortby) throw new Error();
         iterator = iterator || bitmap.iterator();
         let values = [];
         limit = limit || 100;
+        let {scores} = storage[index];
         for (let i = 0; i < limit; i++) {
             let {value, done} = iterator.next();
             if (done) {
@@ -261,6 +262,9 @@ function CURSOR({index: cursor, limit}) {
                 break;
             }
             values.push(value);
+            if (withScore) {
+                values.push(scores[value] || 0);
+            }
         }
         if (iterator) {
             tid = setTimeout(cursorTimeout, C.CURSOR_TIMEOUT, cursor);
@@ -273,7 +277,7 @@ function CURSOR({index: cursor, limit}) {
     });
 }
 
-function ADD({index, id, values}) {
+function ADD({index, id, values, score}) {
     return new Promise((resolve, reject) => {
         if (!index) {
             return reject(C.INVALID_INDEX_ERROR);
@@ -282,7 +286,7 @@ function ADD({index, id, values}) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
         values = values || [];
-        let {fields, ids, persist} = storage[index];
+        let {fields, ids, persist, scores} = storage[index];
         if (ids.has(id)) {
             return reject(_.sprintf(C.ID_EXISTS_ERROR, id));
         }
@@ -373,6 +377,9 @@ function ADD({index, id, values}) {
             }
         }
         ids.add(id);
+        if (score && score > 0) {
+            scores[id] = score;
+        }
         storage[index].min = Math.min(...[id, storage[index].min].filter(Number));
         storage[index].max = Math.max(...[id, storage[index].max].filter(Number));
         if (persist) {
@@ -386,7 +393,7 @@ function ADD({index, id, values}) {
     });
 }
 
-function SEARCH({index, query, sortby, desc, limit}) {
+function SEARCH({index, query, sortby, desc, limit, withCursor, withScore}) {
     return new Promise((resolve, reject) => {
         if (!index) {
             return reject(C.INVALID_INDEX_ERROR);
@@ -394,12 +401,12 @@ function SEARCH({index, query, sortby, desc, limit}) {
         if (!storage[index]) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
-        let {fields} = storage[index];
+        let {fields, scores} = storage[index];
         if (sortby && (!fields[sortby] || !fields[sortby].sortable)) {
             let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
             return reject(_.sprintf(e, sortby));
         }
-        let cursor = (_.isString(limit) && limit == 'WITHCURSOR') ? hex() : false;
+        let cursor = withCursor ? hex() : false;
         let [off, lim] = cursor ? [0, 0] : limit;
         lim += off;
         let bitmap = getBitmap(index, query);
@@ -409,7 +416,7 @@ function SEARCH({index, query, sortby, desc, limit}) {
             if (size > 0) {
                 ret.push(cursor);
                 let tid = setTimeout(cursorTimeout, C.CURSOR_TIMEOUT, cursor);
-                cursors[cursor] = {tid, bitmap, sortby};
+                cursors[cursor] = {tid, bitmap, sortby, index};
             }
             return resolve(ret);
         }
@@ -434,6 +441,13 @@ function SEARCH({index, query, sortby, desc, limit}) {
         }
         if (!bitmap.persist) {
             bitmap.clear();
+        }
+        if (withScore) {
+            let collect = [ret.shift()];
+            for (let id of ret) {
+                collect.push(id, scores[id] || 0);
+            }
+            ret = collect;
         }
         return resolve(ret);
     });

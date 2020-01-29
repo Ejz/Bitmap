@@ -224,6 +224,9 @@ class Grammar {
             }
             if (command.action == 'ADD' && !command.id) {
                 command.id = this.getPositiveInteger();
+                if (this.tryKeyword('SCORE')) {
+                    command.score = this.getPositiveOrZeroInteger();
+                }
                 continue;
             }
             if (command.action == 'ADD' && !command.values) {
@@ -252,16 +255,24 @@ class Grammar {
                 if (this.tryKeyword('LIMIT')) {
                     let [off, lim] = [0, this.getPositiveOrZeroInteger()];
                     if (this.strings.length) {
-                        [off, lim] = [lim, this.getPositiveOrZeroInteger()];
+                        if (this.tryKeyword('WITHSCORE')) {
+                            command.withScore = true;
+                        } else {
+                            [off, lim] = [lim, this.getPositiveOrZeroInteger()];
+                        }
                     }
                     command.limit = [off, lim];
                 } else if (this.tryKeyword('WITHCURSOR')) {
-                    command.limit = 'WITHCURSOR';
+                    command.withCursor = true;
+                }
+                if (!command.withCursor && !command.withScore && this.tryKeyword('WITHSCORE')) {
+                    command.withScore = true;
                 }
                 continue;
             }
             if (command.action == 'CURSOR' && !command.limit && this.tryKeyword('LIMIT')) {
                 command.limit = this.getPositiveOrZeroInteger();
+                command.withScore = this.tryKeyword('WITHSCORE');
                 continue;
             }
             if (command.action == 'RENAME' && !command.name) {

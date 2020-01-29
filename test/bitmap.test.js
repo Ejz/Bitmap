@@ -314,6 +314,7 @@ test('bitmap - STAT', async () => {
     res = await bitmap.execute('stat a');
     expect(res[0]).toBe('size');
     expect(res[1] > 0).toBe(true);
+    await bitmap.execute('drop a');
 });
 
 test('bitmap - RENAME', async () => {
@@ -331,7 +332,7 @@ test('bitmap - RENAME', async () => {
     expect(res).toStrictEqual([]);
 });
 
-test.only('bitmap - PERSIST', async () => {
+test('bitmap - PERSIST', async () => {
     _.rm(C.DUMPDIR);
     let res;
     await bitmap.execute('create a persist');
@@ -346,4 +347,27 @@ test.only('bitmap - PERSIST', async () => {
     await bitmap.execute('load a1');
     [, ...res] = await bitmap.execute('search a1 *');
     expect(res).toStrictEqual([1, 2]);
+});
+
+test('bitmap - SCORE', async () => {
+    let res, cursor;
+    await bitmap.execute('create a');
+    await bitmap.execute('add a 1');
+    await bitmap.execute('add a 2');
+    res = await bitmap.execute('search a * limit 0 100 withscore');
+    expect(res).toStrictEqual([2, 1, 0, 2, 0]);
+    res = await bitmap.execute('search a * limit 100 withscore');
+    expect(res).toStrictEqual([2, 1, 0, 2, 0]);
+    res = await bitmap.execute('search a * withscore');
+    expect(res).toStrictEqual([2, 1, 0, 2, 0]);
+    [, cursor] = await bitmap.execute('search a * withcursor');
+    res = await bitmap.execute('cursor ? limit 1 withscore', cursor);
+    expect(res).toStrictEqual([1, 0]);
+    res = await bitmap.execute('cursor ? limit 1 withscore', cursor);
+    expect(res).toStrictEqual([2, 0]);
+    await bitmap.execute('add a 5 score 10');
+    [, cursor] = await bitmap.execute('search a * withcursor');
+    res = await bitmap.execute('cursor ? limit 3 withscore', cursor);
+    expect(res).toStrictEqual([1, 0, 2, 0, 5, 10]);
+    await bitmap.execute('drop a');
 });

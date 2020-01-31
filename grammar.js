@@ -254,12 +254,10 @@ class Grammar {
                 command.limit = [0, 100];
                 if (this.tryKeyword('LIMIT')) {
                     let [off, lim] = [0, this.getPositiveOrZeroInteger()];
-                    if (this.strings.length) {
-                        if (this.tryKeyword('WITHSCORE')) {
-                            command.withScore = true;
-                        } else {
-                            [off, lim] = [lim, this.getPositiveOrZeroInteger()];
-                        }
+                    if (this.tryKeyword('WITHSCORE')) {
+                        command.withScore = true;
+                    } else if (this.strings.length) {
+                        [off, lim] = [lim, this.getPositiveOrZeroInteger()];
                     }
                     command.limit = [off, lim];
                 } else if (this.tryKeyword('WITHCURSOR')) {
@@ -267,6 +265,9 @@ class Grammar {
                 }
                 if (!command.withCursor && !command.withScore && this.tryKeyword('WITHSCORE')) {
                     command.withScore = true;
+                }
+                if (this.tryKeyword('ID2FK')) {
+                    command.id2fk = this.getIdent();
                 }
                 continue;
             }

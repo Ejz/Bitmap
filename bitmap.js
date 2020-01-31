@@ -74,7 +74,7 @@ function hex() {
     let hex;
     do {
         hex = _.generateHex();
-    } while (Number(hex.substring(0, 1)));
+    } while (hex.length < 8 || Number(hex.substring(0, 1)));
     return hex;
 }
 
@@ -393,7 +393,7 @@ function ADD({index, id, values, score}) {
     });
 }
 
-function SEARCH({index, query, sortby, desc, limit, withCursor, withScore}) {
+function SEARCH({index, query, sortby, desc, limit, withCursor, withScore, id2fk}) {
     return new Promise((resolve, reject) => {
         if (!index) {
             return reject(C.INVALID_INDEX_ERROR);
@@ -402,6 +402,10 @@ function SEARCH({index, query, sortby, desc, limit, withCursor, withScore}) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
         let {fields, scores} = storage[index];
+        if (id2fk && (!fields[id2fk] || fields[id2fk].type != C.TYPE_FOREIGNKEY)) {
+            let e = fields[id2fk] ? C.COLUMN_NOT_FOREIGNKEY_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
+            return reject(_.sprintf(e, id2fk));
+        }
         if (sortby && (!fields[sortby] || !fields[sortby].sortable)) {
             let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
             return reject(_.sprintf(e, sortby));
@@ -441,6 +445,14 @@ function SEARCH({index, query, sortby, desc, limit, withCursor, withScore}) {
         }
         if (!bitmap.persist) {
             bitmap.clear();
+        }
+        if (id2fk) {
+            let _ = fields[id2fk].fk.id2fk;
+            let collect = [ret.shift()];
+            for (let id of ret) {
+                collect.push(_[id]);
+            }
+            ret = collect;
         }
         if (withScore) {
             let collect = [ret.shift()];

@@ -371,3 +371,21 @@ test('bitmap - SCORE', async () => {
     expect(res).toStrictEqual([1, 0, 2, 0, 5, 10]);
     await bitmap.execute('drop a');
 });
+
+test('bitmap - ID2FK', async () => {
+    let res, cursor;
+    await bitmap.execute('create parent');
+    await bitmap.execute('add parent 1');
+    await bitmap.execute('add parent 2');
+    await bitmap.execute('add parent 3');
+    await bitmap.execute('create child fields parent_id foreignkey parent');
+    await bitmap.execute('add child 1 values parent_id 1');
+    await bitmap.execute('add child 2 values parent_id 1');
+    await bitmap.execute('add child 3 values parent_id 2');
+    [, ...res] = await bitmap.execute('search parent ?', '@@child:(*)');
+    expect(res).toStrictEqual([1, 2]);
+    [, ...res] = await bitmap.execute('search child ? id2fk parent_id', '*');
+    expect(res).toStrictEqual([1, 1, 2]);
+    await bitmap.execute('drop parent');
+    await bitmap.execute('drop child');
+});

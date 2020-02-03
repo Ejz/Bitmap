@@ -9,11 +9,15 @@ const to = helpers.to;
 
 const server = net.createServer(async (socket) => {
     let fread = helpers.freader(socket);
+    let connected = new Date();
     let res, err;
+    let client = socket.remoteAddress;
+    console.log(`Connected: ${client};`);
     while (true) {
         [res, err] = await to(fromResp(fread));
         if (err) {
-            console.log(err);
+            let alive = Number(new Date()) - Number(connected);
+            console.log(`Client: ${client}; Error: ${err}; Alive: ${alive};`);
             break;
         }
         [res, err] = await to(bitmap.execute(res));

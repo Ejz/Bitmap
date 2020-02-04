@@ -16,7 +16,7 @@ const server = net.createServer(async (socket) => {
     while (true) {
         [res, err] = await to(fromResp(fread));
         if (err) {
-            let alive = Number(new Date()) - Number(connected);
+            let alive = (Number(new Date()) - Number(connected)) / 1000;
             console.log(`Client: ${client}; Error: ${err}; Alive: ${alive};`);
             break;
         }

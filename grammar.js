@@ -242,6 +242,7 @@ class Grammar {
                 continue;
             }
             if (command.action == 'SEARCH' && !command.limit) {
+                command.limit = [0, 100];
                 command.query = this.getValue();
                 command.query = this.parseQuery(command.query);
                 if (this.tryKeyword('SORTBY')) {
@@ -251,7 +252,6 @@ class Grammar {
                         command.desc = true;
                     }
                 }
-                command.limit = [0, 100];
                 if (this.tryKeyword('LIMIT')) {
                     let [off, lim] = [0, this.getPositiveOrZeroInteger()];
                     if (this.tryKeyword('WITHSCORE')) {
@@ -266,14 +266,19 @@ class Grammar {
                 if (!command.withCursor && !command.withScore && this.tryKeyword('WITHSCORE')) {
                     command.withScore = true;
                 }
-                if (this.tryKeyword('ID2FK')) {
-                    command.id2fk = this.getIdent();
+                command.appendFk = [];
+                while (!command.withCursor && this.tryKeyword('APPENDFK')) {
+                    command.appendFk.push(this.getIdent());
                 }
                 continue;
             }
-            if (command.action == 'CURSOR' && !command.limit && this.tryKeyword('LIMIT')) {
+            if (command.action == 'CURSOR' && !command.limit) {
+                command.appendFk = [];
+                while (this.tryKeyword('APPENDFK')) {
+                    command.appendFk.push(this.getIdent());
+                }
+                this.expectKeyword('LIMIT');
                 command.limit = this.getPositiveOrZeroInteger();
-                command.withScore = this.tryKeyword('WITHSCORE');
                 continue;
             }
             if (command.action == 'RENAME' && !command.name) {

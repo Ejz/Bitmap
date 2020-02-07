@@ -10,9 +10,30 @@ const LF = '\n';
 const CRLF = CR + LF;
 
 const sprintf = require('util').format;
+const stopwords = require('./stopwords');
 
-function stem(word) {
-    return word.split(/\W+/).filter(w => w.length).map(w => snowball.stemword(w.toLowerCase()));
+function stem(sentence, noStopwords) {
+    sentence = sentence.trim().toLowerCase().split(/\W+/);
+    sentence = sentence.filter(word => word.length);
+    if (noStopwords) {
+        sentence = sentence.filter(word => !stopwords[word]);
+    }
+    sentence = sentence.map(word => snowball.stemword(word));
+    return sentence;
+}
+
+function triplets(word) {
+    let triplets = [];
+    if (word.length > 0) {
+        triplets.push(word[0]);
+    }
+    if (word.length > 1) {
+        triplets.push(word[0] + word[1]);
+    }
+    for (let i = 0; i < word.length - 2; i++) {
+        triplets.push(word.substring(i, i + 3));
+    }
+    return triplets;
 }
 
 function md5(string) {
@@ -262,6 +283,7 @@ module.exports = {
     toResp,
     fromResp,
     stem,
+    triplets,
     sprintf,
     castToArray,
     isInteger,

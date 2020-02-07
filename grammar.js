@@ -21,8 +21,10 @@ const grammar = {
             ['\\]', 'return "]";'],
             ['&', 'return "&";'],
             ['-', 'return "-";'],
+            ['\\^', 'return "^";'],
             [':', 'return ":";'],
             [',', 'return ",";'],
+            ['".*?"', 'return "VALUE";'],
             ['[a-zA-Z0-9_\\.]+', 'return "VALUE";'],
             ['$', 'return "EOF";'],
         ],
@@ -51,13 +53,16 @@ const grammar = {
             ['( _values )', '$$ = $2'],
         ],
         _values: [
+            // ['_values & value', '$$ = $1.concat($3)'],
+            // ['_values value', '$$ = $1.concat($2)'],
             ['_values | value', '$$ = $1.concat($3)'],
             ['value', '$$ = [$1]'],
         ],
         value: [
+            ['^ value', '$$ = "^" + $2'],
             ['( value )', '$$ = $2'],
             ['INTEGER', '$$ = parseInt($1)'],
-            ['VALUE', '$$ = $1'],
+            ['VALUE', '$$ = $1.replace(/"/g, "")'],
             ['*', '$$ = $1'],
             ['KW_MIN', '$$ = "MIN"'],
             ['KW_MAX', '$$ = "MAX"'],
@@ -163,6 +168,14 @@ class Grammar {
         return false;
     }
 
+    tryKeywords(...kws) {
+        for (let i = 0, l = kws.length; i < l; i++) {
+            if (this.tryKeyword(kws[i])) {
+                return i;
+            }
+        }
+    }
+
     expectKeyword(kw) {
         let value = this.getValue();
         if (value.toUpperCase() != kw) {
@@ -199,13 +212,16 @@ class Grammar {
                 while (this.strings.length) {
                     let field = {field: this.getIdent(), type: this.getType()};
                     if (field.type == C.TYPE_INTEGER) {
-                        this.expectKeyword('MIN');
-                        field.min = this.getInteger();
-                        this.expectKeyword('MAX');
-                        field.max = this.getInteger();
-                        if (this.tryKeyword('SORTABLE')) {
-                            field.sortable = true;
-                        } else if (this.tryKeyword('NOTSORTABLE')) {
+                        field.min = Number.MIN_SAFE_INTEGER;
+                        field.max = Number.MAX_SAFE_INTEGER;
+                        if (this.tryKeyword('MIN')) {
+                            field.min = this.getInteger();
+                        }
+                        if (this.tryKeyword('MAX')) {
+                            field.max = this.getInteger();
+                        }
+                        if (field.min > field.max) {
+                            throw _.sprintf(C.INVALID_MIN_MAX_ERROR, field.field);
                         }
                     } else if (field.type == C.TYPE_FOREIGNKEY) {
                         field.fk = this.getIdent();
@@ -214,6 +230,8 @@ class Grammar {
                         if (this.tryKeyword('SEPARATOR')) {
                             field.separator = this.getCharacter();
                         }
+                    } else if ([C.TYPE_FULLTEXT, C.TYPE_TRIPLETS].includes(field.type)) {
+                        field.noStopwords = this.tryKeyword('NOSTOPWORDS');
                     }
                     command.fields.push(field);
                 }
@@ -244,13 +262,14 @@ class Grammar {
             if (command.action == 'SEARCH' && !command.limit) {
                 command.limit = [0, 100];
                 command.query = this.getValue();
-                command.query = this.parseQuery(command.query);
+                let query = this.parseQuery(command.query);
+                if (query === undefined) {
+                    throw _.sprintf(C.QUERY_SYNTAX_ERROR, command.query);
+                }
+                command.query = query;
                 if (this.tryKeyword('SORTBY')) {
                     command.sortby = this.getIdent();
-                    if (this.tryKeyword('ASC')) {
-                    } else if (this.tryKeyword('DESC')) {
-                        command.desc = true;
-                    }
+                    command.desc = !!this.tryKeywords('ASC', 'DESC');
                 }
                 if (this.tryKeyword('LIMIT')) {
                     let [off, lim] = [0, this.getPositiveOrZeroInteger()];
@@ -291,7 +310,11 @@ class Grammar {
     }
 
     parseQuery(string) {
-        return this.parser.parse(string);
+        try {
+            return this.parser.parse(string);
+        } catch (e) {
+            return undefined;
+        }
     }
 }
 

@@ -1,12 +1,11 @@
 const bitmap = require('../bitmap');
-const helpers = require('../helpers');
 const _ = require('../helpers');
 const C = require('../constants');
 const sprintf = require('util').format;
 
-const to = helpers.to;
-const rand = helpers.rand;
-const equal = helpers.equal;
+const to = _.to;
+const rand = _.rand;
+const equal = _.equal;
 
 function sortAsc([id1, v1], [id2, v2]) {
     return v1 == v2 ? id1 - id2 : v1 - v2;
@@ -15,33 +14,6 @@ function sortAsc([id1, v1], [id2, v2]) {
 function sortDesc([id1, v1], [id2, v2]) {
     return v1 == v2 ? id1 - id2 : v2 - v1;
 }
-
-test('bitmap - getSortSlices', () => {
-    let res;
-    res = bitmap.getSortSlices(340, [35], 10);
-    expect(res).toStrictEqual({'35': ['35', '3x', 'xx']});
-    res = bitmap.getSortSlices(340, [7], 10);
-    expect(res['7']).toStrictEqual(['7', 'x', 'xx']);
-    res = bitmap.getSortSlices(340, [201], 10);
-    expect(res['201']).toStrictEqual(['201', '20x', '2xx']);
-    res = bitmap.getSortSlices(10, [9], 10);
-    expect(res['9']).toStrictEqual(['9']);
-    res = bitmap.getSortSlices(11, [9], 10);
-    expect(res['9']).toStrictEqual(['9', 'x']);
-    res = bitmap.getSortSlices(11, [10], 10);
-    expect(res['10']).toStrictEqual(['10', '1x']);
-    res = bitmap.getSortSlices(20, [15], 3);
-    expect(res['15']).toStrictEqual(['120', '12x', '1xx']);
-    res = bitmap.getSortSlices(20, [2], 3);
-    expect(res['2']).toStrictEqual(['2', 'x', 'xx']);
-});
-
-test('bitmap - getSortMap', () => {
-    let res;
-    res = bitmap.getSortMap(15, 3);
-    expect(res.bitmaps.has('xx')).toBe(true);
-    expect(res.map.get('xx').get('x') instanceof Map).toBe(true);
-});
 
 test('bitmap - CREATE / DROP', async () => {
     let res;
@@ -122,6 +94,7 @@ test('bitmap - SEARCH (INTEGER)', async () => {
         '@f1:[min,1]': ([id, f, v]) => f == 'f1' && v >= -3 && v <= 1,
         '@f1:[-1,max]': ([id, f, v]) => f == 'f1' && v >= -1 && v <= 3,
         '@f1:[min,max]': ([id, f, v]) => f == 'f1' && v >= -3 && v <= 3,
+        // '@f1:[,]': ([id, f, v]) => f == 'f1' && v >= -3 && v <= 3,
         '@f2:1 | @f1:2': ([id, f, v]) => equal([f, v], ['f2', 1]) || equal([f, v], ['f1', 2]),
         foo: () => false,
     };
@@ -196,61 +169,61 @@ test('bitmap - ARRAY', async () => {
     await bitmap.execute('drop index');
 });
 
-test('bitmap - SORTABLE', async () => {
-    let res;
-    let id = 1;
-    await bitmap.execute('create index fields f1 integer min -100 max 100 sortable');
-    let values = [];
-    for (let i = 0; i < 1000; i++) {
-        let r = rand(-100, 100);
-        await bitmap.execute('add index ? values f1 ?', id, r);
-        values.push([id++, r]);
-    }
-    let cases = {
-        '@f1:[1,10]': ([, v]) => 1 <= v && v <= 10,
-        '@f1:[10,100]': ([, v]) => 10 <= v && v <= 100,
-        '@f1:[-10,100]': ([, v]) => -10 <= v && v <= 100,
-        '@f1:[-10,10]': ([, v]) => -10 <= v && v <= 10,
-        '@f1:[min,0]': ([, v]) => -100 <= v && v <= 0,
-        '@f1:[0,max]': ([, v]) => 0 <= v && v <= 100,
-        '*': () => true,
-    };
-    for (let [q, f] of Object.entries(cases)) {
-        [, ...res] = await bitmap.execute('search index ? sortby f1 limit 1e6', q);
-        let v = values.filter(f);
-        v.sort(sortAsc);
-        v = v.map(([id]) => id);
-        expect(res).toStrictEqual(v);
-    }
-    [, ...res] = await bitmap.execute('search index ? sortby f1 desc limit 1e6', '*');
-    values.sort(sortDesc);
-    values = values.map(([id]) => id);
-    expect(res).toStrictEqual(values);
-    await bitmap.execute('drop index');
-});
+// test('bitmap - SORTABLE', async () => {
+//     let res;
+//     let id = 1;
+//     await bitmap.execute('create index fields f1 integer min -100 max 100 sortable');
+//     let values = [];
+//     for (let i = 0; i < 1000; i++) {
+//         let r = rand(-100, 100);
+//         await bitmap.execute('add index ? values f1 ?', id, r);
+//         values.push([id++, r]);
+//     }
+//     let cases = {
+//         '@f1:[1,10]': ([, v]) => 1 <= v && v <= 10,
+//         '@f1:[10,100]': ([, v]) => 10 <= v && v <= 100,
+//         '@f1:[-10,100]': ([, v]) => -10 <= v && v <= 100,
+//         '@f1:[-10,10]': ([, v]) => -10 <= v && v <= 10,
+//         '@f1:[min,0]': ([, v]) => -100 <= v && v <= 0,
+//         '@f1:[0,max]': ([, v]) => 0 <= v && v <= 100,
+//         '*': () => true,
+//     };
+//     for (let [q, f] of Object.entries(cases)) {
+//         [, ...res] = await bitmap.execute('search index ? sortby f1 limit 1e6', q);
+//         let v = values.filter(f);
+//         v.sort(sortAsc);
+//         v = v.map(([id]) => id);
+//         expect(res).toStrictEqual(v);
+//     }
+//     [, ...res] = await bitmap.execute('search index ? sortby f1 desc limit 1e6', '*');
+//     values.sort(sortDesc);
+//     values = values.map(([id]) => id);
+//     expect(res).toStrictEqual(values);
+//     await bitmap.execute('drop index');
+// });
 
-test('bitmap - SORTABLE - DESC', async () => {
-    let res;
-    let id = 1;
-    await bitmap.execute('create index fields f1 integer min -1 max 1 sortable');
-    let values = [];
-    for (let i = 0; i < 10; i++) {
-        let r = rand(-1, 1);
-        await bitmap.execute('add index ? values f1 ?', id, r);
-        values.push([id++, r]);
-    }
-    let cases = {
-        '@f1:[-1,+1]': ([, v]) => -1 <= v && v <= 1,
-    };
-    for (let [q, f] of Object.entries(cases)) {
-        let [, ...res] = await bitmap.execute('search index ? sortby f1 desc limit 1e6', q);
-        let v = values.filter(f);
-        v.sort(sortDesc);
-        v = v.map(([id]) => id);
-        expect(res).toStrictEqual(v);
-    }
-    await bitmap.execute('drop index');
-});
+// test('bitmap - SORTABLE - DESC', async () => {
+//     let res;
+//     let id = 1;
+//     await bitmap.execute('create index fields f1 integer min -1 max 1 sortable');
+//     let values = [];
+//     for (let i = 0; i < 10; i++) {
+//         let r = rand(-1, 1);
+//         await bitmap.execute('add index ? values f1 ?', id, r);
+//         values.push([id++, r]);
+//     }
+//     let cases = {
+//         '@f1:[-1,+1]': ([, v]) => -1 <= v && v <= 1,
+//     };
+//     for (let [q, f] of Object.entries(cases)) {
+//         let [, ...res] = await bitmap.execute('search index ? sortby f1 desc limit 1e6', q);
+//         let v = values.filter(f);
+//         v.sort(sortDesc);
+//         v = v.map(([id]) => id);
+//         expect(res).toStrictEqual(v);
+//     }
+//     await bitmap.execute('drop index');
+// });
 
 test('bitmap - FOREIGNKEY', async () => {
     let res;
@@ -417,5 +390,63 @@ test('bitmap - CURSOR LIMIT 0', async () => {
     [, cursor] = await bitmap.execute('search a ? withcursor', '*');
     res = await bitmap.execute('cursor ? limit 0', cursor);
     expect(res).toStrictEqual([]);
+    await bitmap.execute('drop a');
+});
+
+test('bitmap - INVALID QUERY', async () => {
+    let res;
+    await bitmap.execute('create a');
+    let bool = false;
+    try {
+        await bitmap.execute('search a -');
+    } catch (e) {
+        bool = true;
+    }
+    expect(bool).toBe(true);
+    await bitmap.execute('drop a');
+});
+
+test('bitmap - TRIPLETS', async () => {
+    let res;
+    await bitmap.execute('create a fields ft fulltext tr triplets');
+    let texts = {
+        1: ['which a user might search', 'lazy dog'],
+        2: ['some english text', 'foo bar'],
+        3: ['one two three', 'hello world foz'],
+    };
+    for (let [id, [ft, tr]] of Object.entries(texts)) {
+        await bitmap.execute('add a ? values ft ? tr ?', id, ft, tr);
+    }
+    let cases = {
+        'lazy': [1],
+        'lazy dogs': [1],
+        'which dogs': [1],
+        'lazy ^d': [1],
+        '^"lazy d"': [1],
+        '@ft:one & @tr:^worl': [3],
+        '^s': [],
+        '^fo': [2, 3],
+    };
+    for (let [query, ids] of Object.entries(cases)) {
+        [, ...res] = await bitmap.execute('search a ?', query);
+        expect(res).toStrictEqual(ids);
+    }
+    await bitmap.execute('drop a');
+});
+
+test('bitmap - ID FILTER', async () => {
+    let res;
+    await bitmap.execute('create a');
+    await bitmap.execute('add a 1');
+    await bitmap.execute('add a 2');
+    await bitmap.execute('add a 3');
+    [, ...res] = await bitmap.execute('search a ?', '@id:[2,max]');
+    expect(res).toStrictEqual([2, 3]);
+    [, ...res] = await bitmap.execute('search a ?', '@id:[3,max]');
+    expect(res).toStrictEqual([3]);
+    [, ...res] = await bitmap.execute('search a ?', '@id:[min,1]');
+    expect(res).toStrictEqual([1]);
+    [, ...res] = await bitmap.execute('search a ?', '@id:[min,2]');
+    expect(res).toStrictEqual([1, 2]);
     await bitmap.execute('drop a');
 });

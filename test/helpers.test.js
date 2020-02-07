@@ -30,11 +30,14 @@ test('generateHex', () => {
 });
 
 test('stem', () => {
-    expect(_.stem('Hello Worlds')).toStrictEqual(['hello', 'world']);
-    expect(_.stem(' Girls ')).toStrictEqual(['girl']);
-    expect(_.stem('  ')).toStrictEqual([]);
-    expect(_.stem(' - ')).toStrictEqual([]);
-    expect(_.stem('i\'m ok')).toStrictEqual(['i', 'm', 'ok']);
+    expect(_.stem('Hello Worlds', false)).toStrictEqual(['hello', 'world']);
+    expect(_.stem(' Girls ', false)).toStrictEqual(['girl']);
+    expect(_.stem('  ', false)).toStrictEqual([]);
+    expect(_.stem(' - ', false)).toStrictEqual([]);
+    expect(_.stem('i\'m ok', false)).toStrictEqual(['i', 'm', 'ok']);
+    //
+    expect(_.stem('Bob took my hand!', true)).toStrictEqual(['bob', 'hand']);
+    expect(_.stem('i\'m ok', true)).toStrictEqual([]);
 });
 
 test('castToArray', () => {
@@ -87,4 +90,9 @@ test('readLines', async () => {
     let res = [];
     await _.readLines(file, line => res.push(line));
     expect(res).toStrictEqual(['a', '', 'b', '']);
+});
+
+test('triplets', () => {
+    expect(_.triplets('hello')).toStrictEqual(['h', 'he', 'hel', 'ell', 'llo']);
+    expect(_.triplets('hii')).toStrictEqual(['h', 'hi', 'hii']);
 });

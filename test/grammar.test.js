@@ -38,13 +38,16 @@ test('grammar - command - create', async () => {
     expect(e).toBe(null);
     //
     [r, e] = await parse('create index fields FT fulltext');
-    expect(r.fields).toStrictEqual([{field: 'ft', type: 'FULLTEXT'}]);
+    expect(r.fields).toStrictEqual([{field: 'ft', noStopwords: false, type: 'FULLTEXT'}]);
     //
     [r, e] = await parse('create index fields i integer min 1 max 2');
     expect(r.fields).toStrictEqual([{field: 'i', type: 'INTEGER', min: 1, max: 2}]);
     //
     [r, e] = await parse('create index fields i integer max 2');
-    expect(e).toMatch(/unexpected.*max/i);
+    expect(r.fields[0].max).toStrictEqual(2);
+    //
+    [r, e] = await parse('create index fields i integer min -9');
+    expect(r.fields[0].min).toStrictEqual(-9);
     //
     [r, e] = await parse('create index fields i integer min 1 max 1e3');
     expect(r.fields[0].max).toStrictEqual(1000);
@@ -88,4 +91,23 @@ test('grammar - query - simple', async () => {
     [r, e] = await parseQuery('foo bar');
     expect(r.op).toBe('&');
     expect(r.queries).toStrictEqual([{values: ['foo']}, {values: ['bar']}]);
+});
+
+test('grammar - query - complex', async () => {
+    let r, e;
+    //
+    [r, e] = await parseQuery('(@f1:(foo | bar)) (str1 | str2) (@f2:(bar | foo))');
+    expect(r.queries[0]).toStrictEqual({field: 'f1', values: ['foo', 'bar']});
+    expect(r.queries[1].queries[0]).toStrictEqual({values: ['str1', 'str2']});
+    expect(r.queries[1].queries[1]).toStrictEqual({field: 'f2', values: ['bar', 'foo']});
+});
+
+test('grammar - query - string', async () => {
+    let r, e;
+    //
+    [r, e] = await parseQuery('"hello world"');
+    expect(r.values).toStrictEqual(['hello world']);
+    [r, e] = await parseQuery('@field:"hello world"');
+    expect(r.values).toStrictEqual(['hello world']);
+    expect(r.field).toStrictEqual('field');
 });

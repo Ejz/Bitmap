@@ -1,74 +1,13 @@
-const RoaringBitmap = require('roaring/RoaringBitmap32');
+const RoaringBitmap = require('./RoaringBitmap');
 const Grammar = require('./grammar');
 const C = require('./constants');
 const _ = require('./helpers');
+const NumberIntervals = require('./NumberIntervals');
 
 const cursors = {};
 const storage = {};
 const SORT_DIV = 3;
 const grammar = new Grammar();
-
-RoaringBitmap.not = (bitmap, min, max) => {
-    bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
-    bitmap.flipRange(min, max + 1);
-    return bitmap;
-};
-
-RoaringBitmap.and = (a, b) => {
-    return RoaringBitmap.andMany([a, b]);
-};
-
-RoaringBitmap.andMany = (bitmaps) => {
-    if (!bitmaps.length) {
-        return new RoaringBitmap();
-    }
-    if (bitmaps.length == 1) {
-        return bitmaps[0];
-    }
-    let max = Number.MAX_SAFE_INTEGER;
-    let reduce = (a, b) => Math.min(a, b.size);
-    let size1 = bitmaps.filter(b => b.persist).reduce(reduce, max);
-    let size2 = bitmaps.filter(b => !b.persist).reduce(reduce, max);
-    let index, find, bitmap;
-    if (size2 != max) {
-        find = b => !b.persist && b.size == size2;
-    } else {
-        find = b => b.persist && b.size == size1;
-    }
-    index = bitmaps.findIndex(find);
-    bitmap = bitmaps[index];
-    bitmaps.splice(index, 1);
-    bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
-    for (let b of bitmaps) {
-        bitmap = bitmap.andInPlace(b);
-    }
-    return bitmap;
-};
-
-RoaringBitmap.orMany = (bitmaps) => {
-    if (!bitmaps.length) {
-        return new RoaringBitmap();
-    }
-    if (bitmaps.length == 1) {
-        return bitmaps[0];
-    }
-    let index, bitmap;
-    index = bitmaps.findIndex(b => !b.persist);
-    index = ~index ? index : 0;
-    bitmap = bitmaps[index];
-    bitmaps.splice(index, 1);
-    bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
-    for (let b of bitmaps) {
-        bitmap = bitmap.orInPlace(b);
-    }
-    return bitmap;
-};
-
-RoaringBitmap.andNot = (bitmap, not) => {
-    bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
-    bitmap.andNotInPlace(not);
-    return bitmap;
-};
 
 function hex() {
     let hex;
@@ -115,7 +54,7 @@ function STAT({index}) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
         let ids = storage[index].ids;
-        let size = ids.size;
+        let size = ids.size();
         return resolve([
             'size', size,
             'min', size > 0 ? ids.minimum() : 0,
@@ -136,38 +75,44 @@ function CREATE({index, fields, persist}) {
         if (!_.isUnique(fields.map(f => f.field))) {
             return reject(_.sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
         }
+        let found = fields.find(f => f.field == C.ID_FIELD);
+        if (found) {
+            return reject(C.ID_FIELD_IS_FORBIDDEN_ERROR);
+        }
+        if (storage[index]) {
+            return reject(_.sprintf(C.INDEX_EXISTS_ERROR, index));
+        }
         let f = {};
-        for (let {field, type, min, max, sortable, fk, separator} of fields) {
-            let bitmaps = {};
-            let sortmap;
+        for (let thisField of fields) {
+            let {
+                field, type, min, max,
+                fk, separator, noStopwords,
+            } = thisField;
+            let triplets, intervals, bitmaps = {};
             if (type == C.TYPE_INTEGER) {
-                if (max < min) {
-                    return reject(_.sprintf(C.INVALID_MIN_MAX_ERROR, field));
-                }
-                let zmax = max - min;
-                for (let i = 0; i <= zmax; i++) {
-                    bitmaps[i] = new RoaringBitmap();
-                    bitmaps[i].persist = true;
-                }
-                if (sortable) {
-                    sortmap = getSortMap(zmax + 1, SORT_DIV);
-                }
+                intervals = new NumberIntervals(true);
+                bitmaps = undefined;
             } else if (type == C.TYPE_FOREIGNKEY) {
                 fk = {fk, id2fk: {}};
+            } else if (type == C.TYPE_TRIPLETS) {
+                triplets = {};
             }
             f[field] = {
                 type,
-                bitmaps,
+                ...(bitmaps !== undefined ? {bitmaps} : {}),
+                ...(intervals !== undefined ? {intervals} : {}),
                 ...(min !== undefined ? {min} : {}),
                 ...(max !== undefined ? {max} : {}),
-                ...(sortable !== undefined ? {sortable} : {}),
-                ...(sortmap !== undefined ? {sortmap} : {}),
                 ...(fk !== undefined ? {fk} : {}),
                 ...(separator !== undefined ? {separator} : {}),
+                ...(noStopwords !== undefined ? {noStopwords} : {}),
+                ...(triplets !== undefined ? {triplets} : {}),
             };
         }
-        let ids = new RoaringBitmap();
-        ids.persist = true;
+        f[C.ID_FIELD] = {type: C.TYPE_INTEGER, intervals: new NumberIntervals(false)};
+        let ids = f[C.ID_FIELD].intervals;
+        // new NumberIntervals(false);
+        // fields[C.ID_FIELD] = ids;
         storage[index] = {fields: f, ids, persist, scores: {}};
         if (persist) {
             let dir = C.DUMPDIR + '/' + index;
@@ -329,65 +274,49 @@ function ADD({index, id, values, score}) {
             return reject(_.sprintf(C.FOREIGNKEY_ID_OUT_OF_RANGE_ERROR, found.field));
         }
         for (let {value, field} of values) {
-            let {type, bitmaps, min, max, sortable, sortmap, fk, separator} = fields[field];
+            let thisField = fields[field];
+            let {type, bitmaps} = thisField;
             if (type == C.TYPE_INTEGER) {
-                value = Number(value);
-                let zvalue = value - min;
-                let zmax = max - min;
-                for (let i = zvalue; i <= zmax; i++) {
-                    bitmaps[i].add(id);
-                }
-                let s = sortable ? getSortSlices(zmax + 1, [zvalue], SORT_DIV)[zvalue] : [];
-                for (let i of s) {
-                    sortmap.bitmaps.get(i).add(id);
-                }
+                thisField.intervals.add(id, value);
                 continue;
             }
-            if (type == C.TYPE_STRING) {
-                if (!bitmaps[value]) {
-                    bitmaps[value] = new RoaringBitmap();
-                    bitmaps[value].persist = true;
+            if ([C.TYPE_STRING, C.TYPE_ARRAY, C.TYPE_BOOLEAN, C.TYPE_FOREIGNKEY].includes(type)) {
+                value = [value];
+                if (type == C.TYPE_ARRAY) {
+                    value = value[0].split(thisField.separator).map(v => v.trim());
+                } else if (type == C.TYPE_BOOLEAN) {
+                    value[0] = _.toBoolean(value[0]);
+                } else if (type == C.TYPE_FOREIGNKEY) {
+                    value[0] = Number(value[0]);
+                    thisField.fk.id2fk[id] = value[0];
                 }
-                bitmaps[value].add(id);
-                continue;
-            }
-            if (type == C.TYPE_BOOLEAN) {
-                value = _.toBoolean(value);
-                if (!bitmaps[value]) {
-                    bitmaps[value] = new RoaringBitmap();
-                    bitmaps[value].persist = true;
-                }
-                bitmaps[value].add(id);
-                continue;
-            }
-            if (type == C.TYPE_FULLTEXT) {
-                for (let v of _.stem(value)) {
-                    if (!bitmaps[v]) {
-                        bitmaps[v] = new RoaringBitmap();
-                        bitmaps[v].persist = true;
-                    }
-                    bitmaps[v].add(id);
-                }
-                continue;
-            }
-            if (type == C.TYPE_FOREIGNKEY) {
-                value = Number(value);
-                if (!bitmaps[value]) {
-                    bitmaps[value] = new RoaringBitmap();
-                    bitmaps[value].persist = true;
-                }
-                bitmaps[value].add(id);
-                fk.id2fk[id] = value;
-                continue;
-            }
-            if (type == C.TYPE_ARRAY) {
-                value = value.split(separator).map(v => v.trim());
                 for (let v of value) {
                     if (!bitmaps[v]) {
                         bitmaps[v] = new RoaringBitmap();
                         bitmaps[v].persist = true;
                     }
                     bitmaps[v].add(id);
+                }
+                continue;
+            }
+            if ([C.TYPE_FULLTEXT, C.TYPE_TRIPLETS].includes(type)) {
+                let {noStopwords, triplets} = thisField;
+                let flag = type == C.TYPE_TRIPLETS;
+                for (let v of _.stem(value, noStopwords)) {
+                    if (!bitmaps[v]) {
+                        bitmaps[v] = new RoaringBitmap();
+                        bitmaps[v].persist = true;
+                    }
+                    bitmaps[v].add(id);
+                    if (flag) {
+                        for (let vv of _.triplets(v)) {
+                            if (!triplets[vv]) {
+                                triplets[vv] = new RoaringBitmap();
+                                triplets[vv].persist = true;
+                            }
+                            triplets[vv].add(id);
+                        }
+                    }
                 }
                 continue;
             }
@@ -424,10 +353,10 @@ function SEARCH({index, query, sortby, desc, limit, withCursor, withScore, appen
                 return reject(_.sprintf(e, fk));
             }
         }
-        if (sortby && (!fields[sortby] || !fields[sortby].sortable)) {
-            let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
-            return reject(_.sprintf(e, sortby));
-        }
+        // if (sortby && (!fields[sortby] || fields[sortby].type != C.TYPE_INTEGER)) {
+        //     let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
+        //     return reject(_.sprintf(e, sortby));
+        // }
         let cursor = withCursor ? hex() : false;
         let [off, lim] = cursor ? [0, 0] : limit;
         lim += off;
@@ -443,12 +372,12 @@ function SEARCH({index, query, sortby, desc, limit, withCursor, withScore, appen
             return resolve(ret);
         }
         if (sortby) {
-            let {map, bitmaps} = fields[sortby].sortmap;
-            let persist = !!bitmap.persist;
-            bitmap.persist = true;
-            let values = getSortValues(map, bitmaps, bitmap, lim, !!desc);
-            bitmap.persist = persist;
-            ret = ret.concat(values.slice(off));
+            // let {map, bitmaps} = fields[sortby].sortmap;
+            // let persist = !!bitmap.persist;
+            // bitmap.persist = true;
+            // let values = getSortValues(map, bitmaps, bitmap, lim, !!desc);
+            // bitmap.persist = persist;
+            // ret = ret.concat(values.slice(off));
         } else {
             let iterator = bitmap.iterator();
             for (let i = 0; i < lim; i++) {
@@ -486,81 +415,6 @@ function SEARCH({index, query, sortby, desc, limit, withCursor, withScore, appen
     });
 }
 
-function getSortMap(card, div) {
-    let values = Array.from(Array(card).keys());
-    let slices = getSortSlices(card, values, div);
-    let bitmaps = Object.values(slices).reduce((a, s) => a.concat(s), []);
-    bitmaps = Array.from(new Set(bitmaps));
-    bitmaps = new Map(bitmaps.map(k => {
-        let v = new RoaringBitmap();
-        v.persist = true;
-        return [k, v];
-    }));
-    let tree = [], shift = 0;
-    let keys = Array.from(bitmaps.keys());
-    do {
-        let regex = new RegExp('x'.repeat(shift));
-        tree[shift] = new Map(keys.filter(
-            k => regex.test(k)
-        ).map(k => {
-            let map = null;
-            if (shift) {
-                let regex = new RegExp('^' + k.replace('x', '\\d') + '$');
-                map = new Map(keys.filter(k => regex.test(k) || regex.test('0' + k)).map(
-                    k => [k, tree[shift - 1].get(k)]
-                ));
-            }
-            return [k, map];
-        }));
-        card = Math.floor((card - 1) / div);
-        shift++;
-    } while (card);
-    return {map: tree[shift - 1], bitmaps};
-}
-
-function getSortSlices(card, values, div) {
-    let slices = {}, map = {};
-    values.forEach(v => {
-        slices[v] = [];
-        map[v] = Number(v).toString(div);
-    });
-    let shift = 0;
-    do {
-        values.forEach(v => {
-            slices[v].push(map[v] + 'x'.repeat(shift));
-            map[v] = map[v].substr(0, map[v].length - 1);
-        });
-        card = Math.floor((card - 1) / div);
-        shift++;
-    } while (card);
-    return slices;
-}
-
-function getSortValues(map, bitmaps, bitmap, limit, desc) {
-    let ret = [];
-    let entries = desc ? Array.from(map.entries()).reverse() : map.entries();
-    for (let [k, v] of entries) {
-        if (limit <= 0) break;
-        let and = RoaringBitmap.and(bitmaps.get(k), bitmap);
-        let size = and.size;
-        if (size && !v) {
-            let iterator = and.iterator();
-            while (limit > 0) {
-                let {value, done} = iterator.next();
-                if (done) break;
-                ret.push(value);
-                limit -= 1;
-            }
-        } else if (size) {
-            let r = getSortValues(v, bitmaps, bitmap, limit, desc);
-            limit -= r.length;
-            ret = ret.concat(r);
-        }
-        and.clear();
-    }
-    return ret;
-}
-
 function getBitmap(index, query) {
     if (query.values) {
         let {values, field, fk} = query;
@@ -586,7 +440,7 @@ function getBitmap(index, query) {
             return bitmap;
         }
         if (values.includes('*')) {
-            return storage[index].ids;
+            return storage[index].ids.getBitmap();
         }
         if (!values.length) {
             return new RoaringBitmap();
@@ -599,9 +453,10 @@ function getBitmap(index, query) {
         if (field && !storage[index].fields[field]) {
             throw _.sprintf(C.COLUMN_NOT_EXISTS_ERROR, field);
         }
+        let indexTypes = [C.TYPE_FULLTEXT, C.TYPE_TRIPLETS];
         if (!field) {
             let fields = Object.entries(storage[index].fields);
-            fields = fields.filter(([k, v]) => ['FULLTEXT'].includes(v.type));
+            fields = fields.filter(([k, v]) => indexTypes.includes(v.type));
             fields = fields.map(([k]) => k);
             if (!fields.length) {
                 return new RoaringBitmap();
@@ -609,7 +464,8 @@ function getBitmap(index, query) {
             let queries = fields.map(field => ({values, field}));
             return getOrBitmap(index, queries);
         }
-        let {type, bitmaps, min, max} = storage[index].fields[field];
+        let thisField = storage[index].fields[field];
+        let {type, bitmaps, triplets} = thisField;
         if (type === C.TYPE_BOOLEAN) {
             value = _.toBoolean(value);
             return bitmaps[value] || new RoaringBitmap();
@@ -617,43 +473,33 @@ function getBitmap(index, query) {
         if ([C.TYPE_STRING, C.TYPE_ARRAY].includes(type)) {
             return bitmaps[value] || new RoaringBitmap();
         }
-        if (type == C.TYPE_FULLTEXT) {
-            let words = Array.isArray(value) ? value : _.stem(value);
-            if (!words.length) {
+        if (indexTypes.includes(type)) {
+            let last, flag = value.length && value[0] == '^';
+            if (flag && type != C.TYPE_TRIPLETS) {
                 return new RoaringBitmap();
             }
-            if (words.length == 1) {
-                return bitmaps[words[0]] || new RoaringBitmap();
+            let words = _.stem(value, thisField.noStopwords);
+            if (flag && words.length) {
+                last = words.pop();
             }
-            let queries = words.map(v => ({values: [v], field}));
-            return getAndBitmap(index, queries);
+            words = words.map(w => bitmaps[w] || new RoaringBitmap());
+            if (last !== undefined) {
+                words.push(getTripletsBitmap(triplets, last));
+            }
+            return RoaringBitmap.andMany(words);
         }
         if (type == C.TYPE_INTEGER) {
             if (!Array.isArray(value)) {
                 value = [value, value];
             }
             let [from, to] = value;
-            from = ['MIN', 'MAX'].includes(from) ? (from == 'MAX' ? max : min) : from;
-            to = ['MIN', 'MAX'].includes(to) ? (to == 'MAX' ? max : min) : to;
-            if (!_.isInteger(from)) {
-                throw _.sprintf(C.INVALID_INTEGER_VALUE_ERROR, from);
-            }
-            if (!_.isInteger(to)) {
-                throw _.sprintf(C.INVALID_INTEGER_VALUE_ERROR, to);
-            }
-            from = from < min ? min : from;
-            to = to > max ? max : to;
-            if (to < from || to < min || from > max) {
-                return new RoaringBitmap();
-            }
-            to -= min;
-            from -= min;
-            max -= min;
-            min = 0;
-            if (!from) {
-                return bitmaps[to];
-            }
-            return RoaringBitmap.andNot(bitmaps[to], bitmaps[from - 1]);
+            from = _.isInteger(from) ? from : undefined;
+            to = _.isInteger(to) ? to : undefined;
+            return thisField.intervals.getBitmap(from, to);
+            // if (!_.isInteger(from) || !_.isInteger(to)) {
+            //     throw _.sprintf(C.INVALID_INTEGER_VALUE_ERROR, _.isInteger(from) ? to : from);
+            // }
+            // return RoaringBitmap.andNot(bitmaps[to], bitmaps[from - 1]);
         }
         if (type === C.TYPE_FOREIGNKEY) {
             if (!_.isInteger(value)) {
@@ -677,7 +523,7 @@ function getBitmap(index, query) {
 }
 
 function getAndBitmap(index, queries) {
-    queries = queries.map((query) => {
+    queries = queries.map(query => {
         if (!(query instanceof RoaringBitmap)) {
             query = getBitmap(index, query);
         }
@@ -687,7 +533,7 @@ function getAndBitmap(index, queries) {
 }
 
 function getOrBitmap(index, queries) {
-    queries = queries.map((query) => {
+    queries = queries.map(query => {
         if (!(query instanceof RoaringBitmap)) {
             query = getBitmap(index, query);
         }
@@ -704,6 +550,17 @@ function getNotBitmap(index, [query]) {
     return RoaringBitmap.not(query, min, max);
 }
 
+function getTripletsBitmap(triplets, word) {
+    let t3 = _.triplets(word);
+    if (t3.length > 1) {
+        t3.shift();
+    }
+    if (t3.length > 1) {
+        t3.shift();
+    }
+    return RoaringBitmap.andMany(t3.map(w => triplets[w] || new RoaringBitmap()));
+}
+
 module.exports = {
     PING,
     CREATE,
@@ -716,6 +573,4 @@ module.exports = {
     RENAME,
     LOAD,
     execute,
-    getSortMap,
-    getSortSlices,
 };

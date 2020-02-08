@@ -19,7 +19,7 @@ class NumberIntervals {
     }
 
     add(id, int) {
-        let _ = this.hasValues ? int : id;
+        let _ = this.hasValues ? Number(int) : id;
         let idx = this.intervals.findIndex(([min, max]) => min <= _ && _ <= max);
         let interval = this.intervals[idx];
         let [min, max, bitmap, values, intervals] = interval;
@@ -29,7 +29,7 @@ class NumberIntervals {
         }
         if (!intervals) {
             if (this.hasValues) {
-                values[id] = int;
+                values[id] = Number(int);
             }
             if (bitmap.size > this.config.rank) {
                 let [i1, i2] = this.splitInterval(interval);
@@ -121,13 +121,6 @@ class NumberIntervals {
             i1[1] += Math.ceil(d);
             i2[0] -= Math.floor(d);
         }
-        while (i1[1] != i2[0] - 1) {
-            i1[1]++;
-            i2[0]--;
-            if (i1[1] == i2[0]) {
-                i1[1]--;
-            }
-        }
         i1[3] = i1[0] == i1[1] ? {} : i1[3];
         i2[3] = i2[0] == i2[1] ? {} : i2[3];
         return [i1, i2];
@@ -166,6 +159,40 @@ class NumberIntervals {
 
     maximum() {
         return this.intervals[this.intervals.length - 1][1];
+    }
+
+    sort(bm, lim, asc) {
+        let ret = [];
+        let inc = asc ? 1 : -1;
+        for (let l = this.intervals.length, i = asc ? 0 : l - 1; 0 <= i && i < l; i += inc) {
+            let [, , bitmap, values, intervals] = this.intervals[i];
+            let ids;
+            if (lim < 1) {
+                break;
+            }
+            if (intervals) {
+                ids = intervals.sort(bm, lim, asc);
+            } else {
+                ids = RoaringBitmap.and(bm, bitmap).toArray();
+                if (this.hasValues) {
+                    let f1 = (a, b) => {
+                        let v1 = values[a], v2 = values[b];
+                        return v1 == v2 ? a - b : v1 - v2;
+                    };
+                    let f2 = (a, b) => {
+                        let v1 = values[a], v2 = values[b];
+                        return v1 == v2 ? a - b : v2 - v1;
+                    };
+                    ids.sort(asc ? f1 : f2);
+                } else if (!asc) {
+                    ids = ids.reverse();
+                }
+                ids = ids.slice(0, lim);
+            }
+            lim -= ids.length;
+            ret = ret.concat(ids);
+        }
+        return ret;
     }
 }
 

@@ -46,10 +46,6 @@ function rand(min = 0, max = Number.MAX_SAFE_INTEGER) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function generateHex() {
-    return Math.floor(Math.random() * Math.pow(2, 32)).toString(16);
-}
-
 function isUnique(array) {
     return new Set(array).size == array.length;
 }
@@ -275,7 +271,6 @@ function readLines(file, handle) {
 module.exports = {
     equal,
     to,
-    generateHex,
     freader,
     md5,
     isUnique,

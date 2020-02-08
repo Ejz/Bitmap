@@ -242,9 +242,6 @@ class Grammar {
             }
             if (command.action == 'ADD' && !command.id) {
                 command.id = this.getPositiveInteger();
-                if (this.tryKeyword('SCORE')) {
-                    command.score = this.getPositiveOrZeroInteger();
-                }
                 continue;
             }
             if (command.action == 'ADD' && !command.values) {
@@ -273,31 +270,15 @@ class Grammar {
                 }
                 if (this.tryKeyword('LIMIT')) {
                     let [off, lim] = [0, this.getPositiveOrZeroInteger()];
-                    if (this.tryKeyword('WITHSCORE')) {
-                        command.withScore = true;
-                    } else if (this.strings.length) {
+                    if (this.strings.length) {
                         [off, lim] = [lim, this.getPositiveOrZeroInteger()];
                     }
                     command.limit = [off, lim];
-                } else if (this.tryKeyword('WITHCURSOR')) {
-                    command.withCursor = true;
                 }
-                if (!command.withCursor && !command.withScore && this.tryKeyword('WITHSCORE')) {
-                    command.withScore = true;
-                }
-                command.appendFk = [];
-                while (!command.withCursor && this.tryKeyword('APPENDFK')) {
-                    command.appendFk.push(this.getIdent());
-                }
-                continue;
-            }
-            if (command.action == 'CURSOR' && !command.limit) {
                 command.appendFk = [];
                 while (this.tryKeyword('APPENDFK')) {
                     command.appendFk.push(this.getIdent());
                 }
-                this.expectKeyword('LIMIT');
-                command.limit = this.getPositiveOrZeroInteger();
                 continue;
             }
             if (command.action == 'RENAME' && !command.name) {

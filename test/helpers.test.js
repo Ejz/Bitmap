@@ -25,10 +25,6 @@ test('rand', () => {
     expect(_.rand(-1, -1)).toBe(-1);
 });
 
-test('generateHex', () => {
-    expect(/^[a-f0-9]+$/.test(_.generateHex())).toBe(true);
-});
-
 test('stem', () => {
     expect(_.stem('Hello Worlds', false)).toStrictEqual(['hello', 'world']);
     expect(_.stem(' Girls ', false)).toStrictEqual(['girl']);

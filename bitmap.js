@@ -4,25 +4,8 @@ const C = require('./constants');
 const _ = require('./helpers');
 const NumberIntervals = require('./NumberIntervals');
 
-const cursors = {};
 const storage = {};
-const SORT_DIV = 3;
 const grammar = new Grammar();
-
-function hex() {
-    let hex;
-    do {
-        hex = _.generateHex();
-    } while (hex.length < 8 || Number(hex.substring(0, 1)));
-    return hex;
-}
-
-function cursorTimeout(cursor) {
-    if (!cursors[cursor].bitmap.persist) {
-        cursors[cursor].bitmap.clear();
-    }
-    delete cursors[cursor];
-}
 
 async function execute(strings, ...args) {
     let command = grammar.parse(strings, ...args);
@@ -113,7 +96,7 @@ function CREATE({index, fields, persist}) {
         let ids = f[C.ID_FIELD].intervals;
         // new NumberIntervals(false);
         // fields[C.ID_FIELD] = ids;
-        storage[index] = {fields: f, ids, persist, scores: {}};
+        storage[index] = {fields: f, ids, persist};
         if (persist) {
             let dir = C.DUMPDIR + '/' + index;
             _.rm(dir);
@@ -188,57 +171,7 @@ function LOAD({index}) {
     });
 }
 
-function CURSOR({index: cursor, limit, withScore, appendFk}) {
-    return new Promise((resolve, reject) => {
-        if (!cursor || !cursors[cursor]) {
-            return reject(C.INVALID_CURSOR_ERROR);
-        }
-        let {tid, bitmap, sortby, iterator, index} = cursors[cursor];
-        clearTimeout(tid);
-        if (sortby) throw new Error();
-        let {scores, fields} = storage[index];
-        for (let fk of appendFk) {
-            if (!fields[fk] || fields[fk].type != C.TYPE_FOREIGNKEY) {
-                let e = fields[fk] ? C.COLUMN_NOT_FOREIGNKEY_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
-                return reject(_.sprintf(e, fk));
-            }
-        }
-        iterator = iterator || bitmap.iterator();
-        let values = [];
-        for (let i = 0; i < limit; i++) {
-            let {value, done} = iterator.next();
-            if (done) {
-                iterator = null;
-                break;
-            }
-            values.push(value);
-            if (withScore) {
-                values.push(scores[value] || 0);
-            }
-        }
-        if (appendFk.length) {
-            let collect = [];
-            for (let id of values) {
-                let _ = [id];
-                for (let fk of appendFk) {
-                    _.push(fields[fk].fk.id2fk[id]);
-                }
-                collect.push(_);
-            }
-            values = collect;
-        }
-        if (iterator) {
-            tid = setTimeout(cursorTimeout, C.CURSOR_TIMEOUT, cursor);
-            cursors[cursor].tid = tid;
-            cursors[cursor].iterator = iterator;
-        } else {
-            cursorTimeout(cursor);
-        }
-        return resolve(values);
-    });
-}
-
-function ADD({index, id, values, score}) {
+function ADD({index, id, values}) {
     return new Promise((resolve, reject) => {
         if (!index) {
             return reject(C.INVALID_INDEX_ERROR);
@@ -247,7 +180,7 @@ function ADD({index, id, values, score}) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
         values = values || [];
-        let {fields, ids, persist, scores} = storage[index];
+        let {fields, ids, persist} = storage[index];
         if (ids.has(id)) {
             return reject(_.sprintf(C.ID_EXISTS_ERROR, id));
         }
@@ -322,9 +255,6 @@ function ADD({index, id, values, score}) {
             }
         }
         ids.add(id);
-        if (score && score > 0) {
-            scores[id] = score;
-        }
         storage[index].min = Math.min(...[id, storage[index].min].filter(Number));
         storage[index].max = Math.max(...[id, storage[index].max].filter(Number));
         if (persist) {
@@ -338,7 +268,7 @@ function ADD({index, id, values, score}) {
     });
 }
 
-function SEARCH({index, query, sortby, desc, limit, withCursor, withScore, appendFk}) {
+function SEARCH({index, query, sortby, desc, limit, appendFk}) {
     return new Promise((resolve, reject) => {
         if (!index) {
             return reject(C.INVALID_INDEX_ERROR);
@@ -346,39 +276,32 @@ function SEARCH({index, query, sortby, desc, limit, withCursor, withScore, appen
         if (!storage[index]) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
-        let {fields, scores} = storage[index];
+        let {fields} = storage[index];
         for (let fk of appendFk) {
             if (!fields[fk] || fields[fk].type != C.TYPE_FOREIGNKEY) {
                 let e = fields[fk] ? C.COLUMN_NOT_FOREIGNKEY_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
                 return reject(_.sprintf(e, fk));
             }
         }
-        // if (sortby && (!fields[sortby] || fields[sortby].type != C.TYPE_INTEGER)) {
-        //     let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
-        //     return reject(_.sprintf(e, sortby));
-        // }
-        let cursor = withCursor ? hex() : false;
-        let [off, lim] = cursor ? [0, 0] : limit;
+        if (sortby && (!fields[sortby] || fields[sortby].type != C.TYPE_INTEGER)) {
+            let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
+            return reject(_.sprintf(e, sortby));
+        }
+        let [off, lim] = limit;
         lim += off;
         let bitmap = getBitmap(index, query);
         let {size} = bitmap;
-        let ret = [size];
-        if (cursor) {
-            if (size > 0) {
-                ret.push(cursor);
-                let tid = setTimeout(cursorTimeout, C.CURSOR_TIMEOUT, cursor);
-                cursors[cursor] = {tid, bitmap, sortby, index};
-            }
-            return resolve(ret);
-        }
-        if (sortby) {
-            // let {map, bitmaps} = fields[sortby].sortmap;
-            // let persist = !!bitmap.persist;
-            // bitmap.persist = true;
-            // let values = getSortValues(map, bitmaps, bitmap, lim, !!desc);
-            // bitmap.persist = persist;
-            // ret = ret.concat(values.slice(off));
+        let ret;
+        if (sortby && (sortby != C.ID_FIELD || desc)) {
+            let p = bitmap.persist;
+            bitmap.persist = true;
+            let _ = fields[sortby].intervals.sort(bitmap, lim, !desc);
+            bitmap.persist = p;
+            _.unshift(size);
+            _ = off > 0 ? _.slice(off) : _;
+            ret = _;
         } else {
+            ret = [size];
             let iterator = bitmap.iterator();
             for (let i = 0; i < lim; i++) {
                 let {value, done} = iterator.next();
@@ -401,13 +324,6 @@ function SEARCH({index, query, sortby, desc, limit, withCursor, withScore, appen
                     _.push(fields[fk].fk.id2fk[id]);
                 }
                 collect.push(_);
-            }
-            ret = collect;
-        }
-        if (withScore) {
-            let collect = [ret.shift()];
-            for (let id of ret) {
-                collect.push(id, scores[id] || 0);
             }
             ret = collect;
         }
@@ -564,7 +480,6 @@ function getTripletsBitmap(triplets, word) {
 module.exports = {
     PING,
     CREATE,
-    CURSOR,
     DROP,
     ADD,
     SEARCH,

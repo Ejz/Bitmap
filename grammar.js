@@ -7,6 +7,7 @@ const _ = require('./helpers');
 const grammar = {
     lex: {
         rules: [
+            ['\\d{4}-\\d{2}-\\d{2}\\b', 'return "DATE";'],
             ['([+-]\\s*)?[0-9]+\\b', 'return "INTEGER";'],
             ['\\s+', '/* */'],
             ['[Mm][Ii][Nn]\\b', 'return "KW_MIN";'],
@@ -62,11 +63,13 @@ const grammar = {
             ['^ value', '$$ = "^" + $2'],
             ['( value )', '$$ = $2'],
             ['INTEGER', '$$ = parseInt($1)'],
+            ['DATE', '$$ = $1'],
             ['VALUE', '$$ = $1.replace(/"/g, "")'],
             ['*', '$$ = $1'],
             ['KW_MIN', '$$ = "MIN"'],
             ['KW_MAX', '$$ = "MAX"'],
             ['[ INTEGER , INTEGER ]', '$$ = [parseInt($2), parseInt($4)]'],
+            ['[ DATE , DATE ]', '$$ = [$2, $4]'],
             ['[ INTEGER , KW_MAX ]', '$$ = [parseInt($2), "MAX"]'],
             ['[ INTEGER , KW_MIN ]', '$$ = [parseInt($2), "MIN"]'],
             ['[ KW_MIN , INTEGER ]', '$$ = ["MIN", parseInt($4)]'],

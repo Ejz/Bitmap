@@ -180,6 +180,16 @@ function toBoolean(v) {
     return v ? '1' : '0';
 }
 
+function toDateInteger(v) {
+    v = toDateTimeInteger(v);
+    return v - (v % (3600 * 24));
+}
+
+function toDateTimeInteger(v) {
+    let d = Date.parse(v);
+    return isInteger(d) ? d / 1000 : 0;
+}
+
 /* IS_* FUNCTIONS */
 
 function isString(f) {
@@ -283,6 +293,8 @@ module.exports = {
     castToArray,
     isInteger,
     toBoolean,
+    toDateInteger,
+    toDateTimeInteger,
     isString,
     isFunction,
     isArray,

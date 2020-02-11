@@ -373,3 +373,18 @@ test('bitmap - ID FILTER', async () => {
     expect(res).toStrictEqual([1, 2]);
     await bitmap.execute('drop a');
 });
+
+test('bitmap - DateTime', async () => {
+    let res;
+    await bitmap.execute('create a fields d date dt datetime');
+    await bitmap.execute('add a 1 values d ? dt ?', '2020-01-01', '2020-01-01 10:00:01');
+    await bitmap.execute('add a 2 values d ? dt ?', '2020-02-01', '2020-02-01 11:00:01');
+    await bitmap.execute('add a 3 values d ? dt ?', '2020-02-02', '2020-02-01 12:00:01');
+    [, ...res] = await bitmap.execute('search a ?', '@d:[2020-01-01,2020-01-01]');
+    expect(res).toStrictEqual([1]);
+    [, ...res] = await bitmap.execute('search a ?', '@d:[2020-01-02,2022-01-01]');
+    expect(res).toStrictEqual([2, 3]);
+    [, ...res] = await bitmap.execute('search a * sortby d desc');
+    expect(res).toStrictEqual([3, 2, 1]);
+    await bitmap.execute('drop a');
+});

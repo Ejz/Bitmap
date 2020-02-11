@@ -72,7 +72,7 @@ function CREATE({index, fields, persist}) {
                 fk, separator, noStopwords,
             } = thisField;
             let triplets, intervals, bitmaps = {};
-            if (type == C.TYPE_INTEGER) {
+            if ([C.TYPE_INTEGER, C.TYPE_DATE, C.TYPE_DATETIME].includes(type)) {
                 intervals = new NumberIntervals(true);
                 bitmaps = undefined;
             } else if (type == C.TYPE_FOREIGNKEY) {
@@ -94,8 +94,6 @@ function CREATE({index, fields, persist}) {
         }
         f[C.ID_FIELD] = {type: C.TYPE_INTEGER, intervals: new NumberIntervals(false)};
         let ids = f[C.ID_FIELD].intervals;
-        // new NumberIntervals(false);
-        // fields[C.ID_FIELD] = ids;
         storage[index] = {fields: f, ids, persist};
         if (persist) {
             let dir = C.DUMPDIR + '/' + index;
@@ -209,7 +207,17 @@ function ADD({index, id, values}) {
         for (let {value, field} of values) {
             let thisField = fields[field];
             let {type, bitmaps} = thisField;
-            if (type == C.TYPE_INTEGER) {
+            if (type === C.TYPE_INTEGER) {
+                thisField.intervals.add(id, value);
+                continue;
+            }
+            if (type === C.TYPE_DATE) {
+                value = _.toDateInteger(value);
+                thisField.intervals.add(id, value);
+                continue;
+            }
+            if (type === C.TYPE_DATETIME) {
+                value = _.toDateTimeInteger(value);
                 thisField.intervals.add(id, value);
                 continue;
             }
@@ -283,7 +291,7 @@ function SEARCH({index, query, sortby, desc, limit, appendFk}) {
                 return reject(_.sprintf(e, fk));
             }
         }
-        if (sortby && (!fields[sortby] || fields[sortby].type != C.TYPE_INTEGER)) {
+        if (sortby && (!fields[sortby] || !fields[sortby].intervals)) {
             let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
             return reject(_.sprintf(e, sortby));
         }
@@ -412,10 +420,17 @@ function getBitmap(index, query) {
             from = _.isInteger(from) ? from : undefined;
             to = _.isInteger(to) ? to : undefined;
             return thisField.intervals.getBitmap(from, to);
-            // if (!_.isInteger(from) || !_.isInteger(to)) {
-            //     throw _.sprintf(C.INVALID_INTEGER_VALUE_ERROR, _.isInteger(from) ? to : from);
-            // }
-            // return RoaringBitmap.andNot(bitmaps[to], bitmaps[from - 1]);
+        }
+        if (type == C.TYPE_DATE) {
+            if (!Array.isArray(value)) {
+                value = [value, value];
+            }
+            let [from, to] = value;
+            from = _.toDateInteger(from);
+            to = _.toDateInteger(to);
+            from = _.isInteger(from) ? from : undefined;
+            to = _.isInteger(to) ? to : undefined;
+            return thisField.intervals.getBitmap(from, to);
         }
         if (type === C.TYPE_FOREIGNKEY) {
             if (!_.isInteger(value)) {

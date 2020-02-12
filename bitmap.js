@@ -330,19 +330,10 @@ function SEARCH({index, query, sortby, desc, limit, appendFk, withCursor, bitmap
         let val, p = bitmap.persist;
         bitmap.persist = true;
         let position = cursor ? cursor.position : undefined;
-        // console.log('sortby:', sortby);
-        // console.log('asc:', !desc);
-        // console.log('lim:', lim);
-        // console.log('position:', position);
-        // console.log('bitmap:', bitmap.toArray());
-        // console.log('bitmap:', bitmap.toArray());
         let [_, pos] = fields[sortby].intervals.sort(bitmap, !desc, lim, position);
         bitmap.persist = p;
         if (cursor) {
-            // console.log(_);
-            // console.log(pos);
             cursor.position = pos;
-            // console.log(cursor);
         } else {
             _ = off > 0 ? _.slice(off) : _;
             _.unshift(size);

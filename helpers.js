@@ -143,6 +143,10 @@ async function fromResp(fread) {
     throw 'UNKNOWN TYPE: ' + type;
 }
 
+function generateHex() {
+    return Math.floor(Math.random() * Math.pow(2, 32)).toString(16);
+}
+
 function to(p) {
     p = p.then ? p : Promise.resolve(p);
     return p.then(data => [data, null]).catch(err => [null, err]);
@@ -281,6 +285,7 @@ function readLines(file, handle) {
 module.exports = {
     equal,
     to,
+    generateHex,
     freader,
     md5,
     isUnique,

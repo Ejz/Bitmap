@@ -72,3 +72,145 @@ test('NumberIntervals - complex - 2', () => {
         expect(ni.getBitmap(from, to).toArray()).toStrictEqual(filter(from, to));
     }
 });
+
+test('NumberIntervals - complex - 3', () => {
+    let t, ni = new NumberIntervals(true, {div: 3, rank: 3});
+    let [ids, pos] = ni.sort(ni.newBitmap(), true, 1);
+    expect(ids).toStrictEqual([]);
+    expect(pos).toStrictEqual(undefined);
+    let values = [];
+    let filter = (ids, asc) => {
+        let vals = values.filter(([i, v]) => ids.includes(i));
+        vals.sort(([i1, v1], [i2, v2]) => v1 == v2 ? i1 - i2 : (asc ? v1 - v2 : v2 - v1));
+        return vals;
+    };
+    let getter = (ids, asc, lim) => {
+        let vals = filter(ids, asc);
+        let ret = vals.slice(0, lim + 1).map(([i, v]) => i);
+        if (ret.length <= lim) {
+            return [ret, undefined];
+        }
+        let id = ret.pop();
+        id = ret[ret.length - 1];
+        return [ret, [id, filter([id])[0][1]]];
+    };
+    for (let i = 1; i <= 20; i++) {
+        let v = _.rand(1, 10);
+        values.push([i, v]);
+        ni.add(i, v);
+    }
+    let cases = [
+        [[1, 2, 3, 4, 5], true, 3],
+        [[], true, 3],
+        [[10, 20], true, 3],
+        [[1, 20], true, 1],
+        [[1, 20], false, 1],
+        [[100, 200], true, 1],
+    ];
+    for (let [t, asc, lim] of cases) {
+        [ids, pos] = ni.sort(ni.newBitmap(t), asc, lim);
+        expect(ids).toStrictEqual(getter(t, asc, lim)[0]);
+        expect(pos).toStrictEqual(getter(t, asc, lim)[1]);
+    }
+});
+
+test('NumberIntervals - complex - 4', () => {
+    let t1, t2, ni = new NumberIntervals(false, {div: _.rand(2, 10), rank: _.rand(2, 10)});
+    ni.add(1);
+    ni.add(2);
+    ni.add(3);
+    ni.add(4);
+    ni.add(5);
+    ni.add(6);
+    ni.add(7);
+    [t1, t2] = ni.sort(ni.newBitmap([1, 2, 3]), true, 2);
+    expect(t1).toStrictEqual([1, 2]);
+    expect(t2).toStrictEqual([2, undefined]);
+    [t1, t2] = ni.sort(ni.newBitmap([1, 2, 3]), true, 2, [2, undefined]);
+    expect(t1).toStrictEqual([3]);
+    expect(t2).toStrictEqual(undefined);
+    [t1, t2] = ni.sort(ni.newBitmap([1, 2, 3]), true, 1, [2, undefined]);
+    expect(t1).toStrictEqual([3]);
+    expect(t2).toStrictEqual([3, undefined]);
+    [t1, t2] = ni.sort(ni.newBitmap([2, 3]), true, 1, [1, undefined]);
+    expect(t1).toStrictEqual([2]);
+    expect(t2).toStrictEqual([2, undefined]);
+    [t1, t2] = ni.sort(ni.newBitmap([2, 3]), true, 1, [2, undefined]);
+    expect(t1).toStrictEqual([3]);
+    expect(t2).toStrictEqual([3, undefined]);
+});
+
+test('NumberIntervals - complex - 5', () => {
+    let t1, t2, ni = new NumberIntervals(true, {div: _.rand(2, 10), rank: _.rand(2, 10)});
+    ni.add(1, 10);
+    ni.add(2, 20);
+    ni.add(3, 30);
+    ni.add(4, 40);
+    ni.add(5, 50);
+    ni.add(6, 60);
+    ni.add(7, 70);
+    [t1, t2] = ni.sort(ni.newBitmap([1, 2, 3]), true, 2);
+    expect(t1).toStrictEqual([1, 2]);
+    expect(t2).toStrictEqual([2, 20]);
+    [t1, t2] = ni.sort(ni.newBitmap([1, 2, 3]), true, 2, [2, 20]);
+    expect(t1).toStrictEqual([3]);
+    expect(t2).toStrictEqual(undefined);
+    [t1, t2] = ni.sort(ni.newBitmap([1, 2, 3]), true, 1, [2, 20]);
+    expect(t1).toStrictEqual([3]);
+    expect(t2).toStrictEqual([3, 30]);
+    [t1, t2] = ni.sort(ni.newBitmap([2, 5, 7]), true, 1, [1, 10]);
+    expect(t1).toStrictEqual([2]);
+    expect(t2).toStrictEqual([2, 20]);
+    [t1, t2] = ni.sort(ni.newBitmap([2, 5, 7]), true, 1, [2, 20]);
+    expect(t1).toStrictEqual([5]);
+    expect(t2).toStrictEqual([5, 50]);
+});
+
+test('NumberIntervals - complex - 6', () => {
+    let t1, t2, ni = new NumberIntervals(true, {div: _.rand(2, 10), rank: _.rand(2, 10)});
+    ni.add(1, 1);
+    ni.add(2, 1);
+    ni.add(5, 1);
+    ni.add(7, 1);
+    ni.add(3, 2);
+    ni.add(4, 2);
+    ni.add(6, 2);
+    let ids = [1, 2, 3, 4, 5, 6, 7];
+    [t1, t2] = ni.sort(ni.newBitmap(ids), true, 2);
+    expect(t1).toStrictEqual([1, 2]);
+    expect(t2).toStrictEqual([2, 1]);
+    [t1, t2] = ni.sort(ni.newBitmap(ids), true, 2, [2, 1]);
+    expect(t1).toStrictEqual([5, 7]);
+    expect(t2).toStrictEqual([7, 1]);
+    [t1, t2] = ni.sort(ni.newBitmap(ids), true, 2, [7, 1], true);
+    expect(t1).toStrictEqual([3, 4]);
+    expect(t2).toStrictEqual([4, 2]);
+    [t1, t2] = ni.sort(ni.newBitmap(ids), true, 2, [4, 2]);
+    expect(t1).toStrictEqual([6]);
+    expect(t2).toStrictEqual(undefined);
+});
+
+test('NumberIntervals - complex - 7', () => {
+    let t1, ni = new NumberIntervals(false, {div: _.rand(2, 10), rank: _.rand(2, 10)});
+    for (let id = 1; id <= 10; id++) {
+        ni.add(id);
+    }
+    let ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    [t1] = ni.sort(ni.newBitmap(ids), true, 1, [4, undefined]);
+    expect(t1).toStrictEqual([5]);
+    [t1] = ni.sort(ni.newBitmap(ids), true, 1, [5, undefined]);
+    expect(t1).toStrictEqual([6]);
+    [t1] = ni.sort(ni.newBitmap(ids), true, 1, [6, undefined]);
+    expect(t1).toStrictEqual([7]);
+    [t1] = ni.sort(ni.newBitmap(ids), true, 1, [7, undefined]);
+    expect(t1).toStrictEqual([8]);
+    //
+    [t1] = ni.sort(ni.newBitmap(ids), false, 1, [7, undefined]);
+    expect(t1).toStrictEqual([6]);
+    [t1] = ni.sort(ni.newBitmap(ids), false, 1, [6, undefined]);
+    expect(t1).toStrictEqual([5]);
+    [t1] = ni.sort(ni.newBitmap(ids), false, 1, [5, undefined]);
+    expect(t1).toStrictEqual([4]);
+    [t1] = ni.sort(ni.newBitmap(ids), false, 1, [4, undefined]);
+    expect(t1).toStrictEqual([3]);
+});

@@ -5,7 +5,23 @@ const _ = require('./helpers');
 const NumberIntervals = require('./NumberIntervals');
 
 const storage = {};
+const cursors = {};
 const grammar = new Grammar();
+
+function hex() {
+    let hex;
+    do {
+        hex = _.generateHex();
+    } while (hex.length < 8 || Number(hex.substring(0, 1)));
+    return hex;
+}
+
+function cursorTimeout(cursor) {
+    if (!cursors[cursor].bitmap.persist) {
+        cursors[cursor].bitmap.clear();
+    }
+    delete cursors[cursor];
+}
 
 async function execute(strings, ...args) {
     let command = grammar.parse(strings, ...args);
@@ -276,7 +292,7 @@ function ADD({index, id, values}) {
     });
 }
 
-function SEARCH({index, query, sortby, desc, limit, appendFk}) {
+function SEARCH({index, query, sortby, desc, limit, appendFk, withCursor, bitmap, cursor}) {
     return new Promise((resolve, reject) => {
         if (!index) {
             return reject(C.INVALID_INDEX_ERROR);
@@ -295,32 +311,43 @@ function SEARCH({index, query, sortby, desc, limit, appendFk}) {
             let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
             return reject(_.sprintf(e, sortby));
         }
+        sortby = sortby || C.ID_FIELD;
+        bitmap = bitmap || getBitmap(index, query);
+        let {size} = bitmap;
+        if (!size) {
+            return resolve([0]);
+        }
+        if (withCursor) {
+            let cursor = hex();
+            bitmap.persist = true;
+            let tid = setTimeout(cursorTimeout, C.CURSOR_TIMEOUT, cursor);
+            cursors[cursor] = {index, sortby, desc, tid, bitmap, appendFk};
+            return resolve([size, cursor]);
+        }
         let [off, lim] = limit;
         lim += off;
-        let bitmap = getBitmap(index, query);
-        let {size} = bitmap;
         let ret;
-        if (sortby && (sortby != C.ID_FIELD || desc)) {
-            let p = bitmap.persist;
-            bitmap.persist = true;
-            let _ = fields[sortby].intervals.sort(bitmap, lim, !desc);
-            bitmap.persist = p;
-            _.unshift(size);
-            _ = off > 0 ? _.slice(off) : _;
-            ret = _;
+        let val, p = bitmap.persist;
+        bitmap.persist = true;
+        let position = cursor ? cursor.position : undefined;
+        // console.log('sortby:', sortby);
+        // console.log('asc:', !desc);
+        // console.log('lim:', lim);
+        // console.log('position:', position);
+        // console.log('bitmap:', bitmap.toArray());
+        // console.log('bitmap:', bitmap.toArray());
+        let [_, pos] = fields[sortby].intervals.sort(bitmap, !desc, lim, position);
+        bitmap.persist = p;
+        if (cursor) {
+            // console.log(_);
+            // console.log(pos);
+            cursor.position = pos;
+            // console.log(cursor);
         } else {
-            ret = [size];
-            let iterator = bitmap.iterator();
-            for (let i = 0; i < lim; i++) {
-                let {value, done} = iterator.next();
-                if (done) {
-                    break;
-                }
-                if (off <= i) {
-                    ret.push(value);
-                }
-            }
+            _ = off > 0 ? _.slice(off) : _;
+            _.unshift(size);
         }
+        ret = _;
         if (!bitmap.persist) {
             bitmap.clear();
         }
@@ -336,6 +363,23 @@ function SEARCH({index, query, sortby, desc, limit, appendFk}) {
             ret = collect;
         }
         return resolve(ret);
+    });
+}
+
+function CURSOR({index: cursor, limit}) {
+    return new Promise(async (resolve, reject) => {
+        if (!cursor || !cursors[cursor]) {
+            return reject(C.INVALID_CURSOR_ERROR);
+        }
+        let {index, sortby, desc, tid, bitmap, appendFk} = cursors[cursor];
+        clearTimeout(tid);
+        tid = setTimeout(cursorTimeout, C.CURSOR_TIMEOUT, cursor);
+        cursors[cursor].tid = tid;
+        let values = await SEARCH({
+            index, sortby, desc, limit: [0, limit], appendFk,
+            bitmap, cursor: cursors[cursor],
+        });
+        return resolve(values);
     });
 }
 
@@ -493,10 +537,12 @@ function getTripletsBitmap(triplets, word) {
 }
 
 module.exports = {
+    storage,
     PING,
     CREATE,
     DROP,
     ADD,
+    CURSOR,
     SEARCH,
     LIST,
     STAT,

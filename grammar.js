@@ -271,7 +271,9 @@ class Grammar {
                     command.sortby = this.getIdent();
                     command.desc = !!this.tryKeywords('ASC', 'DESC');
                 }
-                if (this.tryKeyword('LIMIT')) {
+                if (this.tryKeyword('WITHCURSOR')) {
+                    command.withCursor = true;
+                } else if (this.tryKeyword('LIMIT')) {
                     let [off, lim] = [0, this.getPositiveOrZeroInteger()];
                     if (this.strings.length) {
                         [off, lim] = [lim, this.getPositiveOrZeroInteger()];
@@ -282,6 +284,11 @@ class Grammar {
                 while (this.tryKeyword('APPENDFK')) {
                     command.appendFk.push(this.getIdent());
                 }
+                continue;
+            }
+            if (command.action == 'CURSOR' && !command.limit) {
+                this.expectKeyword('LIMIT');
+                command.limit = this.getPositiveInteger();
                 continue;
             }
             if (command.action == 'RENAME' && !command.name) {

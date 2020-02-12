@@ -388,3 +388,84 @@ test('bitmap - DateTime', async () => {
     expect(res).toStrictEqual([3, 2, 1]);
     await bitmap.execute('drop a');
 });
+
+test('bitmap - CURSOR', async () => {
+    let res;
+    let sortAsc = ([id1], [id2]) => id1 - id2;
+    let sortDesc = ([id1], [id2]) => id2 - id1;
+    let sortValAsc = ([id1, v1], [id2, v2]) => v1 == v2 ? id1 - id2 : v1 - v2;
+    let sortValDesc = ([id1, v1], [id2, v2]) => v1 == v2 ? id1 - id2 : v2 - v1;
+    let grab = async (cursor) => {
+        let ids, limit, ret = [];
+        do {
+            limit = _.rand(1, 5);
+            // console.log(limit);
+            ids = await bitmap.execute('cursor ? limit ?', cursor, limit);
+            // console.log(ids);
+            ret = ret.concat(ids);
+            // // console.log(ret);
+            // if (ids.length < limit) {
+            //     break;
+            // }
+        } while (ids.length >= limit);
+        return ret;
+    };
+    let cases = [
+        {
+            num: 1000,
+            val: id => _.rand(1, 10),
+            queries: [{
+                query: '*',
+                sort: 'id',
+                asc: true,
+                filterValues: ([i, v]) => true,
+                sortValues: sortAsc,
+            }, {
+                query: '*',
+                sort: 'id',
+                asc: false,
+                filterValues: ([i, v]) => true,
+                sortValues: sortDesc,
+            }, {
+                query: '*',
+                sort: 'int',
+                asc: true,
+                filterValues: ([i, v]) => true,
+                sortValues: sortValAsc,
+            }, {
+                query: '*',
+                sort: 'int',
+                asc: false,
+                filterValues: ([i, v]) => true,
+                sortValues: sortValDesc,
+            }, {
+                query: '@int:4',
+                sort: 'int',
+                asc: false,
+                filterValues: ([i, v]) => v == 4,
+                sortValues: sortValDesc,
+            }],
+        },
+    ];
+    for (let {num, val, queries} of cases) {
+        let vals = [];
+        await bitmap.execute('create index fields int integer');
+        bitmap.storage.index.fields.id.intervals.config = {div: _.rand(2, 100), rank: _.rand(2, 100)};
+        bitmap.storage.index.fields.int.intervals.config = {div: _.rand(2, 100), rank: _.rand(2, 100)};
+        for (let i = 1; i <= num; i++) {
+            let v = val(i);
+            vals.push([i, v]);
+            await bitmap.execute('add index ? values int ?', i, v);
+        }
+        for (let {query, sort, asc, filterValues, sortValues} of queries) {
+            let [size, cursor] = await bitmap.execute('search index ? sortby ? ? withcursor', query, sort, asc ? 'asc' : 'desc');
+            let grabbed = await grab(cursor);
+            let _vals = vals.filter(filterValues);
+            _vals.sort(sortValues);
+            expect(size).toStrictEqual(_vals.length);
+            expect(size).toStrictEqual(grabbed.length);
+            expect(grabbed).toStrictEqual(_vals.map(([id]) => id));
+        }
+        await bitmap.execute('drop index');
+    }
+});

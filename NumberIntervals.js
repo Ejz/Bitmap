@@ -74,8 +74,12 @@ class NumberIntervals {
         if (intervals) {
             return intervals.getBitmap(from, to);
         }
+        let getValue = id => values === undefined ? min : values[id];
         let f1 = v => from <= v && v <= to;
-        let f2 = v => from <= values[v] && values[v] <= to;
+        let f2 = v => {
+            v = getValue(v);
+            return from <= v && v <= to;
+        };
         let collect = bitmap.toArray().filter(this.hasValues ? f2 : f1);
         return new RoaringBitmap(collect);
     }
@@ -121,8 +125,8 @@ class NumberIntervals {
             i1[1] += Math.ceil(d);
             i2[0] -= Math.floor(d);
         }
-        i1[3] = i1[0] == i1[1] ? {} : i1[3];
-        i2[3] = i2[0] == i2[1] ? {} : i2[3];
+        i1[3] = i1[0] == i1[1] ? undefined : i1[3];
+        i2[3] = i2[0] == i2[1] ? undefined : i2[3];
         return [i1, i2];
     }
 
@@ -161,38 +165,63 @@ class NumberIntervals {
         return this.intervals[this.intervals.length - 1][1];
     }
 
-    sort(bm, lim, asc) {
-        let ret = [];
+    sort(bm, asc, lim, pos) {
+        let ret = [], pos2, valx;
         let inc = asc ? 1 : -1;
+        let hasValues = this.hasValues;
+        if (pos) {
+            valx = pos[hasValues ? 1 : 0];
+            valx = hasValues ? valx : valx + inc;
+        }
         for (let l = this.intervals.length, i = asc ? 0 : l - 1; 0 <= i && i < l; i += inc) {
-            let [, , bitmap, values, intervals] = this.intervals[i];
-            let ids;
             if (lim < 1) {
                 break;
             }
+            let [min, max, bitmap, values, intervals] = this.intervals[i];
+            let getValue = id => values === undefined ? min : values[id];
+            if (pos && ((asc && max < valx) || (!asc && valx < min))) {
+                continue;
+            }
+            let ids;
             if (intervals) {
-                ids = intervals.sort(bm, lim, asc);
+                [ids, pos2] = intervals.sort(bm, asc, lim, pos);
             } else {
                 ids = RoaringBitmap.and(bm, bitmap).toArray();
-                if (this.hasValues) {
-                    let f1 = (a, b) => {
-                        let v1 = values[a], v2 = values[b];
+                if (pos && ((asc && min <= valx) || (!asc && valx <= max))) {
+                    let [_0, _1] = pos;
+                    let fv = id => {
+                        let v = getValue(id);
+                        return v == _1 ? _0 < id : (asc ? _1 < v : v < _1);
+                    };
+                    let fi = id => asc ? _0 < id : id < _0;
+                    ids = ids.filter(hasValues ? fv : fi);
+                }
+                if (hasValues && min < max) {
+                    let s1 = (a, b) => {
+                        let v1 = getValue(a), v2 = getValue(b);
                         return v1 == v2 ? a - b : v1 - v2;
                     };
-                    let f2 = (a, b) => {
-                        let v1 = values[a], v2 = values[b];
+                    let s2 = (a, b) => {
+                        let v1 = getValue(a), v2 = getValue(b);
                         return v1 == v2 ? a - b : v2 - v1;
                     };
-                    ids.sort(asc ? f1 : f2);
-                } else if (!asc) {
+                    ids.sort(asc ? s1 : s2);
+                } else if (!hasValues && !asc) {
                     ids = ids.reverse();
                 }
                 ids = ids.slice(0, lim);
+                if (ids.length) {
+                    let id = ids[ids.length - 1];
+                    let _ = hasValues ? getValue(id) : undefined;
+                    pos2 = [id, _];
+                } else {
+                    pos2 = undefined;
+                }
             }
             lim -= ids.length;
             ret = ret.concat(ids);
         }
-        return ret;
+        return [ret, lim > 0 ? undefined : pos2];
     }
 }
 

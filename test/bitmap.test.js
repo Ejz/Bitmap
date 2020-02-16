@@ -316,6 +316,18 @@ test('bitmap - APPENDFK', async () => {
     await bitmap.execute('drop child');
 });
 
+test('bitmap - APPENDFK CURSOR', async () => {
+    let res;
+    await bitmap.execute('create parent');
+    await bitmap.execute('create child fields parent_id foreignkey parent');
+    await bitmap.execute('add child 1 values parent_id 2');
+    [, res] = await bitmap.execute('search child ? withcursor appendfk parent_id', '*');
+    [res] = await bitmap.execute('cursor ? limit 1', res);
+    expect(res).toStrictEqual([1, 2]);
+    await bitmap.execute('drop parent');
+    await bitmap.execute('drop child');
+});
+
 test('bitmap - INVALID QUERY', async () => {
     let res;
     await bitmap.execute('create a');

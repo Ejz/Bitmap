@@ -343,7 +343,7 @@ function SEARCH({index, query, sortby, desc, limit, appendFk, withCursor, bitmap
             bitmap.clear();
         }
         if (appendFk.length) {
-            let collect = [ret.shift()];
+            let collect = cursor ? [] : [ret.shift()];
             for (let id of ret) {
                 let _t = [id];
                 for (let fk of appendFk) {

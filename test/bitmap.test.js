@@ -399,14 +399,8 @@ test('bitmap - CURSOR', async () => {
         let ids, limit, ret = [];
         do {
             limit = _.rand(1, 5);
-            // console.log(limit);
             ids = await bitmap.execute('cursor ? limit ?', cursor, limit);
-            // console.log(ids);
             ret = ret.concat(ids);
-            // // console.log(ret);
-            // if (ids.length < limit) {
-            //     break;
-            // }
         } while (ids.length >= limit);
         return ret;
     };

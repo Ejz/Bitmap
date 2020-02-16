@@ -330,26 +330,26 @@ function SEARCH({index, query, sortby, desc, limit, appendFk, withCursor, bitmap
         let val, p = bitmap.persist;
         bitmap.persist = true;
         let position = cursor ? cursor.position : undefined;
-        let [_, pos] = fields[sortby].intervals.sort(bitmap, !desc, lim, position);
+        let [_ids, pos] = fields[sortby].intervals.sort(bitmap, !desc, lim, position);
         bitmap.persist = p;
         if (cursor) {
             cursor.position = pos;
         } else {
-            _ = off > 0 ? _.slice(off) : _;
-            _.unshift(size);
+            _ids = off > 0 ? _ids.slice(off) : _ids;
+            _ids.unshift(size);
         }
-        ret = _;
+        ret = _ids;
         if (!bitmap.persist) {
             bitmap.clear();
         }
         if (appendFk.length) {
             let collect = [ret.shift()];
             for (let id of ret) {
-                let _ = [id];
+                let _t = [id];
                 for (let fk of appendFk) {
-                    _.push(fields[fk].fk.id2fk[id]);
+                    _t.push(fields[fk].fk.id2fk[id]);
                 }
-                collect.push(_);
+                collect.push(_t);
             }
             ret = collect;
         }

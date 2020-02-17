@@ -328,6 +328,16 @@ test('bitmap - APPENDFK CURSOR', async () => {
     await bitmap.execute('drop child');
 });
 
+test('bitmap - APPENDPOS', async () => {
+    let res;
+    await bitmap.execute('create a');
+    await bitmap.execute('add a 1');
+    await bitmap.execute('add a 2');
+    res = await bitmap.execute('search a ? limit 0 1 appendpos', '*');
+    expect(res).toStrictEqual([2, 1, '1-']);
+    await bitmap.execute('drop a');
+});
+
 test('bitmap - INVALID QUERY', async () => {
     let res;
     await bitmap.execute('create a');

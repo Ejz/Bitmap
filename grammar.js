@@ -284,6 +284,7 @@ class Grammar {
                 while (this.tryKeyword('APPENDFK')) {
                     command.appendFk.push(this.getIdent());
                 }
+                command.appendPos = this.tryKeyword('APPENDPOS');
                 continue;
             }
             if (command.action == 'CURSOR' && !command.limit) {

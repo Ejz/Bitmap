@@ -292,7 +292,7 @@ function ADD({index, id, values}) {
     });
 }
 
-function SEARCH({index, query, sortby, desc, limit, appendFk, withCursor, bitmap, cursor}) {
+function SEARCH({index, query, sortby, desc, limit, appendFk, withCursor, bitmap, cursor, appendPos}) {
     return new Promise((resolve, reject) => {
         if (!index) {
             return reject(C.INVALID_INDEX_ERROR);
@@ -352,6 +352,9 @@ function SEARCH({index, query, sortby, desc, limit, appendFk, withCursor, bitmap
                 collect.push(_t);
             }
             ret = collect;
+        }
+        if (appendPos) {
+            ret.push(_.isArray(pos) ? pos.join('-') : '');
         }
         return resolve(ret);
     });

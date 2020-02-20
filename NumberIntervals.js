@@ -3,7 +3,7 @@ const C = require('./constants');
 const _ = require('./helpers');
 
 class NumberIntervals {
-    constructor(hasValues, config = {div: 5, rank: 1000}) {
+    constructor(hasValues, config = {div: 3, rank: 1000}) {
         let {intervals} = config;
         delete config.intervals;
         this.hasValues = hasValues;

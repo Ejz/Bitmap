@@ -87,9 +87,9 @@ function CREATE({index, fields, persist}) {
                 field, type, min, max,
                 fk, separator, noStopwords,
             } = thisField;
-            let triplets, intervals, bitmaps = {};
+            let triplets, bsi, bitmaps = {};
             if ([C.TYPE_INTEGER, C.TYPE_DATE, C.TYPE_DATETIME].includes(type)) {
-                intervals = new NumberIntervals(true);
+                bsi = new BSI(min, max);
                 bitmaps = undefined;
             } else if (type == C.TYPE_FOREIGNKEY) {
                 fk = {fk, id2fk: {}};
@@ -100,6 +100,7 @@ function CREATE({index, fields, persist}) {
                 type,
                 ...(bitmaps !== undefined ? {bitmaps} : {}),
                 ...(intervals !== undefined ? {intervals} : {}),
+                ...(bsi !== undefined ? {bsi} : {}),
                 ...(min !== undefined ? {min} : {}),
                 ...(max !== undefined ? {max} : {}),
                 ...(fk !== undefined ? {fk} : {}),
@@ -108,8 +109,8 @@ function CREATE({index, fields, persist}) {
                 ...(triplets !== undefined ? {triplets} : {}),
             };
         }
-        f[C.ID_FIELD] = {type: C.TYPE_INTEGER, intervals: new NumberIntervals(false)};
-        let ids = f[C.ID_FIELD].intervals;
+        let ids = new RoaringBitmap();
+        ids.persist = true;
         storage[index] = {fields: f, ids, persist};
         if (persist) {
             let dir = C.DUMPDIR + '/' + index;
@@ -224,17 +225,17 @@ function ADD({index, id, values}) {
             let thisField = fields[field];
             let {type, bitmaps} = thisField;
             if (type === C.TYPE_INTEGER) {
-                thisField.intervals.add(id, value);
+                thisField.bsi.add(id, value);
                 continue;
             }
             if (type === C.TYPE_DATE) {
                 value = _.toDateInteger(value);
-                thisField.intervals.add(id, value);
+                thisField.bsi.add(id, value);
                 continue;
             }
             if (type === C.TYPE_DATETIME) {
                 value = _.toDateTimeInteger(value);
-                thisField.intervals.add(id, value);
+                thisField.bsi.add(id, value);
                 continue;
             }
             if ([C.TYPE_STRING, C.TYPE_ARRAY, C.TYPE_BOOLEAN, C.TYPE_FOREIGNKEY].includes(type)) {
@@ -307,7 +308,7 @@ function SEARCH({index, query, sortby, desc, limit, appendFk, withCursor, bitmap
                 return reject(_.sprintf(e, fk));
             }
         }
-        if (sortby && (!fields[sortby] || !fields[sortby].intervals)) {
+        if (sortby && (!fields[sortby] || !fields[sortby].bsi)) {
             let e = fields[sortby] ? C.COLUMN_NOT_SORTABLE_ERROR : C.COLUMN_NOT_EXISTS_ERROR;
             return reject(_.sprintf(e, sortby));
         }
@@ -330,7 +331,7 @@ function SEARCH({index, query, sortby, desc, limit, appendFk, withCursor, bitmap
         let val, p = bitmap.persist;
         bitmap.persist = true;
         let position = cursor ? cursor.position : undefined;
-        let [_ids, pos] = fields[sortby].intervals.sort(bitmap, !desc, lim, position);
+        let [_ids, pos] = fields[sortby].bsi.sort(bitmap, !desc, lim, position);
         bitmap.persist = p;
         if (cursor) {
             cursor.position = pos;
@@ -457,7 +458,7 @@ function getBitmap(index, query) {
             let [from, to] = value;
             from = _.isInteger(from) ? from : undefined;
             to = _.isInteger(to) ? to : undefined;
-            return thisField.intervals.getBitmap(from, to);
+            return thisField.bsi.getBitmap(from, to);
         }
         if (type == C.TYPE_DATE) {
             if (!Array.isArray(value)) {
@@ -468,7 +469,7 @@ function getBitmap(index, query) {
             to = _.toDateInteger(to);
             from = _.isInteger(from) ? from : undefined;
             to = _.isInteger(to) ? to : undefined;
-            return thisField.intervals.getBitmap(from, to);
+            return thisField.bsi.getBitmap(from, to);
         }
         if (type === C.TYPE_FOREIGNKEY) {
             if (!_.isInteger(value)) {

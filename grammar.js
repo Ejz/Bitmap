@@ -215,8 +215,8 @@ class Grammar {
                 while (this.strings.length) {
                     let field = {field: this.getIdent(), type: this.getType()};
                     if (field.type == C.TYPE_INTEGER) {
-                        field.min = Number.MIN_SAFE_INTEGER;
-                        field.max = Number.MAX_SAFE_INTEGER;
+                        field.min = 0;
+                        field.max = (3 ** 20) - 1;
                         if (this.tryKeyword('MIN')) {
                             field.min = this.getInteger();
                         }

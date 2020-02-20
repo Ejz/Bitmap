@@ -186,7 +186,7 @@ function toBoolean(v) {
 
 function toDateInteger(v) {
     v = toDateTimeInteger(v);
-    return v - (v % (3600 * 24));
+    return Math.floor(v / (3600 * 24));
 }
 
 function toDateTimeInteger(v) {

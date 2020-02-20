@@ -226,6 +226,12 @@ class Grammar {
                         if (field.min > field.max) {
                             throw _.sprintf(C.INVALID_MIN_MAX_ERROR, field.field);
                         }
+                    } else if (field.type == C.TYPE_DATE) {
+                        field.min = 0;
+                        field.max = (3 ** 10) - 1;
+                    } else if (field.type == C.TYPE_DATETIME) {
+                        field.min = 0;
+                        field.max = (3 ** 20) - 1;
                     } else if (field.type == C.TYPE_FOREIGNKEY) {
                         field.fk = this.getIdent();
                     } else if (field.type == C.TYPE_ARRAY) {

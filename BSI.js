@@ -77,6 +77,22 @@ class BSI {
         }
         return RoaringBitmap.orMany(or);
     }
+
+    *sort(bitmap, asc, l = 0) {
+        let {len, bitmaps} = this;
+        bitmap.persist = true;
+        let last = l == len - 1;
+        let inc = asc ? +1 : -1;
+        for (let i = asc ? 0 : 2; 0 <= i && i < 3; i += inc) {
+            let intersection = RoaringBitmap.and(bitmap, bitmaps[i][l]);
+            let size = intersection.size;
+            if (last || size == 1) {
+                yield* intersection.iterator();
+            } else if (size >= 2) {
+                yield* this.sort(intersection, asc, l + 1);
+            }
+        }
+    }
 }
 
 module.exports = BSI;

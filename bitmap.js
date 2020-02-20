@@ -3,6 +3,7 @@ const Grammar = require('./grammar');
 const C = require('./constants');
 const _ = require('./helpers');
 const NumberIntervals = require('./NumberIntervals');
+const BSI = require('./BSI');
 
 const storage = {};
 const cursors = {};
@@ -53,7 +54,7 @@ function STAT({index}) {
             return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
         }
         let ids = storage[index].ids;
-        let size = ids.size();
+        let size = ids.size;
         return resolve([
             'size', size,
             'min', size > 0 ? ids.minimum() : 0,
@@ -99,7 +100,6 @@ function CREATE({index, fields, persist}) {
             f[field] = {
                 type,
                 ...(bitmaps !== undefined ? {bitmaps} : {}),
-                ...(intervals !== undefined ? {intervals} : {}),
                 ...(bsi !== undefined ? {bsi} : {}),
                 ...(min !== undefined ? {min} : {}),
                 ...(max !== undefined ? {max} : {}),
@@ -331,7 +331,28 @@ function SEARCH({index, query, sortby, desc, limit, appendFk, withCursor, bitmap
         let val, p = bitmap.persist;
         bitmap.persist = true;
         let position = cursor ? cursor.position : undefined;
-        let [_ids, pos] = fields[sortby].bsi.sort(bitmap, !desc, lim, position);
+        let _ids, pos;
+        if (fields[sortby] && fields[sortby].bsi) {
+            let it = fields[sortby].bsi.sort(bitmap, !desc);
+            pos = [];
+            _ids = [];
+            for (let _ of it) {
+              if (_ids.length == lim) {
+                break;
+              }
+              _ids.push(_);
+            }
+            // [_ids, pos] = fields[sortby].bsi.sort(bitmap, !desc, lim, position);
+        } else {
+            pos = [];
+            _ids = [];
+            for (let _ of bitmap) {
+              if (_ids.length == lim) {
+                break;
+              }
+              _ids.push(_);
+            }
+        }
         bitmap.persist = p;
         if (cursor) {
             cursor.position = pos;
@@ -403,7 +424,7 @@ function getBitmap(index, query) {
             return bitmap;
         }
         if (values.includes('*')) {
-            return storage[index].ids.getBitmap();
+            return storage[index].ids;
         }
         if (!values.length) {
             return new RoaringBitmap();
@@ -469,6 +490,7 @@ function getBitmap(index, query) {
             to = _.toDateInteger(to);
             from = _.isInteger(from) ? from : undefined;
             to = _.isInteger(to) ? to : undefined;
+            // console.log(from, to);
             return thisField.bsi.getBitmap(from, to);
         }
         if (type === C.TYPE_FOREIGNKEY) {

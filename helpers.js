@@ -60,7 +60,7 @@ function freader(socket) {
             let n = buffer.indexOf(CRLF);
             let undef = size === undefined;
             if (
-                (!undef && buffer.length >= size) ||
+                (!undef && byteLength(buffer) >= size) ||
                 (undef && ~n)
             ) {
                 let s = undef ? n + 2 : size;
@@ -90,7 +90,7 @@ function toResp(message) {
     let resp = [];
     if (isArray(message)) {
         resp.push('*' + message.length + CRLF);
-        message.forEach((message) => {
+        message.forEach(message => {
             resp.push(toResp(message));
         });
     } else if (typeof(message) === 'number') {
@@ -102,7 +102,7 @@ function toResp(message) {
         ) {
             resp.push('+' + message + CRLF);
         } else {
-            resp.push('$' + message.length + CRLF);
+            resp.push('$' + byteLength(message) + CRLF);
             resp.push(message + CRLF);
         }
     } else if (typeof(message) === 'object' && message.constructor.name === 'Error') {
@@ -141,6 +141,19 @@ async function fromResp(fread) {
         return result;
     }
     throw 'UNKNOWN TYPE: ' + type;
+}
+
+function byteLength(str) {
+    let code, s = str.length;
+    for (let i = s - 1;  i >= 0; i--) {
+        code = str.charCodeAt(i);
+        if (code > 0x7F && code <= 0x7FF) {
+            s += 1;
+        } else if (code > 0x7FF && code <= 0xFFFF) {
+            s += 2;
+        }
+    }
+    return s;
 }
 
 function generateHex() {
@@ -294,6 +307,7 @@ module.exports = {
     fromResp,
     stem,
     triplets,
+    byteLength,
     sprintf,
     castToArray,
     isInteger,

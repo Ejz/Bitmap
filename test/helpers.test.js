@@ -19,6 +19,13 @@ test('fromResp - simple string', async () => {
     expect(res).toBe('hello');
 });
 
+test('byteLength', async () => {
+    let res =  _.byteLength('foo™');
+    expect(res).toBe(6);
+    res = _.byteLength('ру');
+    expect(res).toBe(4);
+});
+
 test('rand', () => {
     expect([1, 2, 3, 4, 5].includes(_.rand(1, 5))).toBe(true);
     expect(_.rand(1, 1)).toBe(1);

@@ -5,8 +5,8 @@ const _ = require('./helpers');
 const NumberIntervals = require('./NumberIntervals');
 const BSI = require('./BSI');
 
-const storage = {};
-const cursors = {};
+const storage = Object.create(null);
+const cursors = Object.create(null);
 const grammar = new Grammar();
 
 function hex() {
@@ -82,20 +82,20 @@ function CREATE({index, fields, persist}) {
         if (storage[index]) {
             return reject(_.sprintf(C.INDEX_EXISTS_ERROR, index));
         }
-        let f = {};
+        let f = Object.create(null);
         for (let thisField of fields) {
             let {
                 field, type, min, max,
                 fk, separator, noStopwords,
             } = thisField;
-            let triplets, bsi, bitmaps = {};
+            let triplets, bsi, bitmaps = Object.create(null);
             if ([C.TYPE_INTEGER, C.TYPE_DATE, C.TYPE_DATETIME].includes(type)) {
                 bsi = new BSI(min, max);
                 bitmaps = undefined;
             } else if (type == C.TYPE_FOREIGNKEY) {
-                fk = {fk, id2fk: {}};
+                fk = {fk, id2fk: Object.create(null)};
             } else if (type == C.TYPE_TRIPLETS) {
-                triplets = {};
+                triplets = Object.create(null);
             }
             f[field] = {
                 type,

@@ -355,6 +355,7 @@ test('bitmap - TRIPLETS', async () => {
         1: ['which a user might search', 'lazy dog'],
         2: ['some english text', 'foo bar'],
         3: ['one two three', 'hello world foz'],
+        4: ['constructor', 'prototype'],
     };
     for (let [id, [ft, tr]] of Object.entries(texts)) {
         await bitmap.execute('add a ? values ft ? tr ?', id, ft, tr);
@@ -373,6 +374,17 @@ test('bitmap - TRIPLETS', async () => {
         [, ...res] = await bitmap.execute('search a ?', query);
         expect(res).toStrictEqual(ids);
     }
+    await bitmap.execute('drop a');
+});
+
+test('bitmap - CONSTRUCTOR / PROTOTYPE', async () => {
+    let res;
+    await bitmap.execute('create a fields constructor string prototype string');
+    await bitmap.execute('add a 1 values constructor 1 prototype 2');
+    [res] = await bitmap.execute('search a ?', '@constructor:1');
+    expect(res).toStrictEqual(1);
+    [res] = await bitmap.execute('search a ?', '@prototype:2');
+    expect(res).toStrictEqual(1);
     await bitmap.execute('drop a');
 });
 

@@ -1,7 +1,4 @@
-#!/usr/bin/env node
-
-const server = require("./server");
-const argv = process.argv.slice(2);
+const server = require('../server');
 
 process.on('uncaughtException', console.log);
 process.on('unhandledRejection', console.log);

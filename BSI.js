@@ -2,7 +2,7 @@ const RoaringBitmap = require('./RoaringBitmap');
 const C = require('./constants');
 const _ = require('./helpers');
 
-class BSI {
+class Bsi {
     constructor(min, max) {
         min = min > max ? max : min;
         this.max = max - min;
@@ -11,14 +11,12 @@ class BSI {
         let len = 0;
         do {
             len++;
-            rank /= 3;
+            rank /= 2;
             rank = Math.ceil(rank);
         } while (rank != 1);
-        this.bitmaps = [[], [], []];
+        this.bitmaps = {all: this.newBitmap(), zero: []};
         for (let i = 0; i < len; i++) {
-            this.bitmaps[0].push(this.newBitmap());
-            this.bitmaps[1].push(this.newBitmap());
-            this.bitmaps[2].push(this.newBitmap());
+            this.bitmaps.zero.push(this.newBitmap());
         }
         this.len = len;
     }
@@ -35,56 +33,53 @@ class BSI {
         if (int < 0 || int > max) {
             return;
         }
-        int.toString(3).padStart(len, '0').split('').forEach((char, i) => {
-            bitmaps[char][i].add(id);
+        bitmaps.all.add(id);
+        int.toString(2).padStart(len, '0').split('').forEach((char, i) => {
+            if (char == '0') {
+                bitmaps.zero[i].add(id);
+            }
         });
     }
 
-    getBitmap(from, to, l) {
-        let {bitmaps, max, zval, len} = this;
-        if (l === undefined) {
-            l = 0;
-            from = from === undefined ? 0 : from - zval;
-            to = to === undefined ? max : to - zval;
-            from = from < 0 ? 0 : from;
-            to = to > max ? max : to;
-            if (to < from) {
-                return this.newBitmap();
-            }
-            from = from.toString(3).padStart(len, '0');
-            to = to.toString(3).padStart(len, '0');
+    getBitmap(from, to) {
+        let {max, zval, len} = this;
+        from = from === undefined ? 0 : from - zval;
+        to = to === undefined ? max : to - zval;
+        from = from < 0 ? 0 : from;
+        to = to > max ? max : to;
+        if (to < from) {
+            return new RoaringBitmap();
         }
-        let last = l == len - 1;
-        let f = from[0];
-        let t = to[0];
-        from = from.substring(1);
-        to = to.substring(1);
-        let m = + t - f;
-        let or = [];
-        let push = (bm1, bm2) => {
-            or.push(bm2 === undefined ? bm1 : RoaringBitmap.and(bm1, bm2));
-        };
-        if (m == 0) {
-            push(bitmaps[f][l], last ? undefined : this.getBitmap(from, to, l + 1));
-        } else {
-            let _0 = '0'.repeat(len - l - 1);
-            let _2 = '2'.repeat(len - l - 1);
-            push(bitmaps[f][l], last ? undefined : this.getBitmap(from, _2, l + 1));
-            push(bitmaps[t][l], last ? undefined : this.getBitmap(_0, to, l + 1));
-            if (m == 2) {
-                push(bitmaps[1][l], undefined);
-            }
+        to = this.getBitmapTo(to.toString(2).padStart(len, '0').split(''));
+        if (from > 0) {
+            from = this.getBitmapTo((from - 1).toString(2).padStart(len, '0').split(''));
+            to = RoaringBitmap.andNot(to, from);
         }
-        return RoaringBitmap.orMany(or);
+        return to;
+    }
+
+    getBitmapTo(to) {
+        let {bitmaps, len} = this;
+        let t = to.shift();
+        let l = to.length;
+        let idx = len - l - 1;
+        if (t == '1') {
+            let or = [bitmaps.zero[idx]];
+            or.push(l ? this.getBitmapTo(to) : bitmaps.all);
+            return RoaringBitmap.orMany(or);
+        }
+        let _ = bitmaps.zero[idx];
+        return l ? RoaringBitmap.andMany([_, this.getBitmapTo(to)]) : _;
     }
 
     *sort(bitmap, asc, l = 0) {
         let {len, bitmaps} = this;
         bitmap.persist = true;
         let last = l == len - 1;
-        let inc = asc ? +1 : -1;
-        for (let i = asc ? 0 : 2; 0 <= i && i < 3; i += inc) {
-            let intersection = RoaringBitmap.and(bitmap, bitmaps[i][l]);
+        for (let i of (asc ? [0, 1] : [1, 0])) {
+            let bm = bitmaps.zero[l];
+            bm = i ? RoaringBitmap.andNot(bitmaps.all, bm) : bm;
+            let intersection = RoaringBitmap.and(bitmap, bm);
             let size = intersection.size;
             if (last || size == 1) {
                 yield* intersection.iterator();
@@ -95,4 +90,4 @@ class BSI {
     }
 }
 
-module.exports = BSI;
+module.exports = Bsi;

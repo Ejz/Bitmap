@@ -94,7 +94,6 @@ test('bitmap - SEARCH (INTEGER)', async () => {
         '@f1:[min,1]': ([id, f, v]) => f == 'f1' && v >= -3 && v <= 1,
         '@f1:[-1,max]': ([id, f, v]) => f == 'f1' && v >= -1 && v <= 3,
         '@f1:[min,max]': ([id, f, v]) => f == 'f1' && v >= -3 && v <= 3,
-        // '@f1:[,]': ([id, f, v]) => f == 'f1' && v >= -3 && v <= 3,
         '@f2:1 | @f1:2': ([id, f, v]) => equal([f, v], ['f2', 1]) || equal([f, v], ['f1', 2]),
         foo: () => false,
     };

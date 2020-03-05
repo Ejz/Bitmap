@@ -61,6 +61,8 @@ test('server - utf8', async () => {
     expect(res).toBe(C.ADD_SUCCESS);
     [res, err] = await to(client.send(_('add index1 2 values f TM™')));
     expect(res).toBe(C.ADD_SUCCESS);
+    [res, err] = await to(client.send(_('add index1 3 values f \x00')));
+    expect(res).toBe(C.ADD_SUCCESS);
     [res] = await to(client.send(_('drop index1')));
     expect(res).toBe(C.DROP_SUCCESS);
     client.end();

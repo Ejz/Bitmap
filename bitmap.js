@@ -490,7 +490,6 @@ function getBitmap(index, query) {
             to = _.toDateInteger(to);
             from = _.isInteger(from) ? from : undefined;
             to = _.isInteger(to) ? to : undefined;
-            // console.log(from, to);
             return thisField.bsi.getBitmap(from, to);
         }
         if (type === C.TYPE_FOREIGNKEY) {

@@ -2,12 +2,12 @@ const C = require('../constants');
 const _ = require('../helpers');
 const bitmap = require('../bitmap');
 
-test('PING', () => {
+test('bitmap / PING', () => {
     let r1 = bitmap.execute('ping');
     expect(r1).toEqual(C.BITMAP_OK);
 });
 
-test('CREATE / LIST / DROP', () => {
+test('bitmap / CREATE / LIST / DROP', () => {
     let r1 = bitmap.execute('create a');
     expect(r1).toEqual(C.BITMAP_OK);
     let r2 = bitmap.execute('list');
@@ -18,7 +18,7 @@ test('CREATE / LIST / DROP', () => {
     expect(r4).toEqual([]);
 });
 
-test('RENAME', () => {
+test('bitmap / RENAME', () => {
     bitmap.execute('create a');
     let r1 = bitmap.execute('list');
     expect(r1).toEqual(['a']);
@@ -28,7 +28,7 @@ test('RENAME', () => {
     expect(r4).toEqual(['b']);
 });
 
-test('STAT', () => {
+test('bitmap / STAT', () => {
     let r1 = bitmap.execute('stat');
     expect(/^memory_/.test(Object.keys(r1)[0])).toEqual(true);
     bitmap.execute('create a');
@@ -39,7 +39,7 @@ test('STAT', () => {
     bitmap.execute('drop a');
 });
 
-test('ADD', () => {
+test('bitmap / ADD', () => {
     let r1 = bitmap.execute(`
         create a fields
         i integer min 1 max 2
@@ -62,6 +62,47 @@ test('ADD', () => {
     bitmap.execute('drop a');
 });
 
+test('bitmap / SEARCH', () => {
+    bitmap.execute('create index fields f1 string');
+    let strings = ['foo', 'bar', 'hello', 'world'];
+    let id = 1;
+    for (let string of strings) {
+        bitmap.execute(`add index ${id++} values f1 '${string}'`);
+    }
+    let cases = {
+        '@f1:bar': [2],
+        '(@f1:bar)': [2],
+        '@f1:unknown': [],
+        '@f1:foo | @f1:bar': [1, 2],
+        '@f1:foo & @f1:bar': [],
+        '@f1:foo & @f1:foo': [1],
+        '@f1:(bar)': [2],
+        '@f1:(bar | foo)': [1, 2],
+        '@f1:(bar & foo)': [],
+        '@f1:(foo & foo)': [1],
+        '*': [1, 2, 3, 4],
+        '-*': [],
+        '* | @f1:unknown': [1, 2, 3, 4],
+        '* & @f1:unknown': [],
+        '( @f1 : ( bar ) )': [2],
+        '@f1:foo | @f1:bar & @f1:foo': [1],
+        '@f1:foo | (@f1:bar & @f1:foo)': [1],
+        '(@f1:foo | @f1:bar) & @f1:foo': [1],
+        '@f1:foo & @f1:(bar|foo)': [1],
+        '@f1:bar & @f1:(bar|foo)': [2],
+        '@f1:bar @f1:(bar|foo)': [2],
+        '-@f1:bar': [1, 3, 4],
+        '-@f1:(bar|foo)': [3, 4],
+        '-@f1:bar & @f1:(unknown|foo)': [1],
+    };
+    let res;
+    for (let [query, result] of Object.entries(cases)) {
+        [, ...res] = bitmap.execute(`search index '${query}'`);
+        expect(res).toEqual(result);
+    }
+    bitmap.execute('drop index');
+});
+
 // const to = _.to;
 // const rand = _.rand;
 // const equal = _.equal;
@@ -79,39 +120,7 @@ test('ADD', () => {
 //     await bitmap.execute('drop index');
 // });
 
-// test('bitmap - SEARCH', async () => {
-//     let res;
-//     res = await bitmap.execute('create index fields f1 string');
-//     let strings = ['foo', 'bar', 'hello', 'world'];
-//     let id = 1;
-//     for (let string of strings) {
-//         await bitmap.execute('add index ? values f1 ?', id++, string);
-//     }
-//     let cases = {
-//         '*': [1, 2, 3, 4],
-//         '@f1:bar': [2],
-//         '(@f1:bar)': [2],
-//         '@f1:(bar)': [2],
-//         '( @f1 : ( bar ) )': [2],
-//         '@f1:unknown': [],
-//         '@f1:foo | @f1:bar': [1, 2],
-//         '@f1:foo & @f1:foo': [1],
-//         '@f1:foo | @f1:bar & @f1:foo': [1],
-//         '@f1:foo | (@f1:bar & @f1:foo)': [1],
-//         '(@f1:foo | @f1:bar) & @f1:foo': [1],
-//         '@f1:foo & @f1:(bar|foo)': [1],
-//         '@f1:bar & @f1:(bar|foo)': [2],
-//         '@f1:bar @f1:(bar|foo)': [2],
-//         '-@f1:bar': [1, 3, 4],
-//         '-@f1:(bar|foo)': [3, 4],
-//         '-@f1:bar & @f1:(unknown|foo)': [1],
-//     };
-//     for (const [query, result] of Object.entries(cases)) {
-//         [, ...res] = await bitmap.execute('search index ?', query);
-//         expect(res).toEqual(result);
-//     }
-//     await bitmap.execute('drop index');
-// });
+
 
 // test('bitmap - SEARCH (INTEGER)', async () => {
 //     let res, err;

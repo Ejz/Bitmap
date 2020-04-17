@@ -1,14 +1,8 @@
 const RoaringBitmap = require('roaring/RoaringBitmap32');
 
-RoaringBitmap.not = (bitmap, min, max) => {
-    bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
-    bitmap.flipRange(min, max + 1);
-    return bitmap;
-};
-
-RoaringBitmap.and = (a, b) => {
-    return RoaringBitmap.andMany([a, b]);
-};
+// RoaringBitmap.and = (a, b) => {
+//     return RoaringBitmap.andMany([a, b]);
+// };
 
 RoaringBitmap.andMany = (bitmaps) => {
     if (!bitmaps.length) {
@@ -37,29 +31,32 @@ RoaringBitmap.andMany = (bitmaps) => {
     return bitmap;
 };
 
-RoaringBitmap.orMany = (bitmaps) => {
-    if (!bitmaps.length) {
-        return new RoaringBitmap();
-    }
-    if (bitmaps.length == 1) {
-        return bitmaps[0];
-    }
-    let index, bitmap;
-    index = bitmaps.findIndex(b => !b.persist);
-    index = ~index ? index : 0;
-    bitmap = bitmaps[index];
-    bitmaps.splice(index, 1);
-    bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
-    for (let b of bitmaps) {
-        bitmap = bitmap.orInPlace(b);
-    }
-    return bitmap;
-};
+// RoaringBitmap.orMany = (bitmaps) => {
+//     if (!bitmaps.length) {
+//         return new RoaringBitmap();
+//     }
+//     if (bitmaps.length == 1) {
+//         return bitmaps[0];
+//     }
+//     let index, bitmap;
+//     index = bitmaps.findIndex(b => !b.persist);
+//     index = ~index ? index : 0;
+//     bitmap = bitmaps[index];
+//     bitmaps.splice(index, 1);
+//     bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
+//     for (let b of bitmaps) {
+//         bitmap = bitmap.orInPlace(b);
+//     }
+//     return bitmap;
+// };
+
+let andNot = RoaringBitmap.andNot;
 
 RoaringBitmap.andNot = (bitmap, not) => {
-    bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
-    bitmap.andNotInPlace(not);
-    return bitmap;
+    if (bitmap.persist) {
+        return andNot(bitmap, not);
+    }
+    return bitmap.andNotInPlace(not);
 };
 
 module.exports = RoaringBitmap;

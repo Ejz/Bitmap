@@ -1,69 +1,212 @@
 const RoaringBitmap = require('./RoaringBitmap');
-const Grammar = require('./grammar');
+const BSI = require('./BSI');
 const C = require('./constants');
 const _ = require('./helpers');
-const NumberIntervals = require('./NumberIntervals');
-const BSI = require('./BSI');
+const CommandParser = require('./CommandParser');
 
-const storage = Object.create(null);
-const cursors = Object.create(null);
-const grammar = new Grammar();
+let storage = Object.create(null);
 
-function hex() {
-    let hex;
-    do {
-        hex = _.generateHex();
-    } while (hex.length < 8 || Number(hex.substring(0, 1)));
-    return hex;
+let isUnique = arr => arr.length == _.unique(arr).length;
+
+function newBitmap() {
+    let bm = new RoaringBitmap();
+    bm.persist = true;
+    if (this && this.bitmaps) {
+        this.bitmaps.push(bm);
+    }
+    return bm;
 }
 
-function cursorTimeout(cursor) {
-    if (!cursors[cursor].bitmap.persist) {
-        cursors[cursor].bitmap.clear();
+function execute(query) {
+    let commandParser = new CommandParser();
+    let tokens = commandParser.tokenize(query);
+    let command = commandParser.parse(tokens);
+    if (_.isString(command)) {
+        return command;
     }
-    delete cursors[cursor];
-}
-
-async function execute(strings, ...args) {
-    let command = grammar.parse(strings, ...args);
-    if (!module.exports[command.action]) {
-        throw C.INVALID_ACTION_ERROR;
+    let action = String(command.action || '');
+    if (!module.exports[action]) {
+        return C.E(C.BITMAP_ERROR_UNKNOWN_COMMAND);
     }
-    return await module.exports[command.action](command);
+    try {
+        return module.exports[action](command);
+    } catch (e) {
+        e = _.isArray(e) ? e : [e];
+        return C.E(...e);
+    }
 }
 
 function PING() {
-    return C.PING_SUCCESS;
+    return C.BITMAP_OK;
 }
 
 function LIST() {
     return Object.keys(storage);
 }
 
-function STAT({index}) {
-    return new Promise((resolve, reject) => {
-        if (!index) {
-            let reply = [];
-            let memoryUsage = process.memoryUsage();
-            for (let key of Object.keys(memoryUsage)) {
-                reply.push(key, Math.round(memoryUsage[key] / 1E6));
+function CREATE({index, fields}) {
+    if (storage[index]) {
+        throw [C.BITMAP_ERROR_INDEX_EXISTS, index];
+    }
+    for (let [, field] of Object.entries(fields)) {
+        let {type} = field;
+        if (!C.IS_INTEGER(type)) {
+            field.bitmaps = Object.create(null);
+            if (type == C.TYPES.FOREIGNKEY) {
+                field.id2fk = Object.create(null);
             }
-            return resolve(reply);
         }
-        if (!storage[index]) {
-            return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
+    }
+    storage[index] = {fields, bitmaps: [], newBitmap};
+    storage[index].ids = storage[index].newBitmap();
+    let nb = storage[index].newBitmap.bind(storage[index]);
+    Object.entries(storage[index].fields).forEach(([, f]) => {
+        if (C.IS_INTEGER(f.type)) {
+            f.bsi = new BSI(f.min, f.max, nb);
         }
-        let ids = storage[index].ids;
-        let size = ids.size;
-        return resolve([
-            'size', size,
-            'min', size > 0 ? ids.minimum() : 0,
-            'max', size > 0 ? ids.maximum() : 0,
-        ]);
     });
+    return C.BITMAP_OK;
 }
 
-function CREATE({index, fields, persist}) {
+function DROP({index}) {
+    if (!storage[index]) {
+        throw [C.BITMAP_ERROR_INDEX_NOT_EXISTS, index];
+    }
+    delete storage[index];
+    return C.BITMAP_OK;
+}
+
+function RENAME({index, name}) {
+    if (!storage[index]) {
+        throw [C.BITMAP_ERROR_INDEX_NOT_EXISTS, index];
+    }
+    if (storage[name]) {
+        throw [C.BITMAP_ERROR_INDEX_EXISTS, name];
+    }
+    storage[name] = storage[index];
+    delete storage[index];
+    return C.BITMAP_OK;
+}
+
+function STAT({index}) {
+    if (!index) {
+        let reply = {};
+        let memoryUsage = process.memoryUsage();
+        for (let key of Object.keys(memoryUsage)) {
+            let k = 'memory_' + key.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
+            reply[k] = memoryUsage[key];
+            let mb = Math.round(memoryUsage[key] / 1E6);
+            let kb = Math.round(memoryUsage[key] / 1E3);
+            reply[k + '_human'] = (mb ? mb : kb) + (mb ? 'M' : 'K');
+        }
+        return reply;
+    }
+    if (!storage[index]) {
+        throw [C.BITMAP_ERROR_INDEX_NOT_EXISTS, index];
+    }
+    index = storage[index];
+    let size = index.ids.size;
+    return {
+        size: size,
+        id_minimum: size > 0 ? index.ids.minimum() : 0,
+        id_maximum: size > 0 ? index.ids.maximum() : 0,
+        used_bitmaps: index.bitmaps.length,
+        used_bits: index.bitmaps.reduce((acc, v) => acc + v.size, 0),
+    };
+}
+
+function ADD({index, id, values}) {
+    if (!storage[index]) {
+        throw [C.BITMAP_ERROR_INDEX_NOT_EXISTS, index];
+    }
+    let {ids, fields} = storage[index];
+    if (ids.has(id)) {
+        throw [C.BITMAP_ERROR_ID_EXISTS, id];
+    }
+    let f1 = Object.entries(values).find(([field]) => !fields[field]);
+    if (f1) {
+        throw [C.BITMAP_ERROR_FIELD_NOT_EXISTS, f1];
+    }
+    let f2 = Object.entries(values).find(([field, value]) =>
+        C.IS_INTEGER(fields[field].type) && (
+            value < fields[field].min || fields[field].max < value
+        )
+    );
+    if (f2) {
+        throw [C.BITMAP_ERROR_OUT_OF_RANGE, f2];
+    }
+    for (let [field, value] of Object.entries(values)) {
+        field = fields[field];
+        let {type, bitmaps, separator, id2fk} = field;
+        let toBitmap = v => {
+            bitmaps[v] = bitmaps[v] || storage[index].newBitmap();
+            bitmaps[v].add(id);
+        };
+        switch (type) {
+            case C.TYPES.INTEGER:
+                value = _.toInteger(value);
+                if (value === undefined) {
+                    throw [C.BITMAP_ERROR_EXPECT_INTEGER];
+                }
+                field.bsi.add(id, value);
+                break;
+            case C.TYPES.DATE:
+                value = _.toDateInteger(value);
+                if (value === undefined) {
+                    throw [C.BITMAP_ERROR_EXPECT_DATE];
+                }
+                field.bsi.add(id, value);
+                break;
+            case C.TYPES.DATETIME:
+                value = _.toDateTimeInteger(value);
+                if (value === undefined) {
+                    throw [C.BITMAP_ERROR_EXPECT_DATETIME];
+                }
+                field.bsi.add(id, value);
+                break;
+            case C.TYPES.BOOLEAN:
+                value = _.toBoolean(value);
+                toBitmap(value);
+                break;
+            case C.TYPES.STRING:
+                toBitmap(String(value));
+                break;
+            case C.TYPES.ARRAY:
+                value = String(value).split(separator).map(v => v.trim());
+                value.filter(Boolean).forEach(toBitmap);
+                break;
+            // case C.TYPES.FOREIGNKEY:
+            //     value = _.toInteger(value);
+            //     if (value === undefined || value < 1) {
+            //         throw [C.BITMAP_ERROR_EXPECT_POSITIVE_INTEGER];
+            //     }
+            //     toBitmap(value);
+            //     id2fk[id] = value;
+            //     break;
+            // case C.TYPES.FULLTEXT:
+            //     value = [];
+            //     value.forEach(toBitmap);
+            //     break;
+        }
+    }
+    ids.add(id);
+    return C.BITMAP_OK;
+}
+
+module.exports = {
+    execute,
+    PING,
+    LIST,
+    CREATE,
+    DROP,
+    RENAME,
+    STAT,
+    ADD,
+};
+
+
+
+function CREATEOLD({index, fields, persist}) {
     return new Promise((resolve, reject) => {
         if (!index) {
             return reject(C.INVALID_INDEX_ERROR);
@@ -125,7 +268,7 @@ function CREATE({index, fields, persist}) {
     });
 }
 
-function DROP({index}) {
+function DROPOLD({index}) {
     return new Promise((resolve, reject) => {
         if (!index) {
             return reject(C.INVALID_INDEX_ERROR);
@@ -138,160 +281,9 @@ function DROP({index}) {
     });
 }
 
-function RENAME({index, name}) {
-    return new Promise((resolve, reject) => {
-        if (!index || !name) {
-            return reject(C.INVALID_INDEX_ERROR);
-        }
-        if (index == name) {
-            return reject(C.SAME_NAME_ERROR);
-        }
-        if (!storage[index]) {
-            return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
-        }
-        if (storage[name]) {
-            return reject(_.sprintf(C.INDEX_EXISTS_ERROR, name));
-        }
-        storage[name] = storage[index];
-        delete storage[index];
-        if (storage[name].persist) {
-            _.renameDirectory(C.DUMPDIR + '/' + index, C.DUMPDIR + '/' + name);
-        }
-        return resolve(C.RENAME_SUCCESS);
-    });
-}
 
-function LOAD({index}) {
-    return new Promise(async (resolve, reject) => {
-        if (!index) {
-            return reject(C.INVALID_INDEX_ERROR);
-        }
-        if (storage[index]) {
-            return reject(_.sprintf(C.INDEX_EXISTS_ERROR, index));
-        }
-        let dir = C.DUMPDIR + '/' + index;
-        if (!_.isDirectory(dir)) {
-            return reject(C.LOAD_ERROR);
-        }
-        await _.readLines(dir + '/CREATE', async line => {
-            let {fields} = JSON.parse(line);
-            await CREATE({index, fields});
-        });
-        await _.readLines(dir + '/CHANGES', async line => {
-            let {id, values} = JSON.parse(line);
-            await ADD({index, id, values});
-        });
-        storage[index].persist = true;
-        return resolve(C.LOAD_SUCCESS);
-    });
-}
 
-function ADD({index, id, values}) {
-    return new Promise((resolve, reject) => {
-        if (!index) {
-            return reject(C.INVALID_INDEX_ERROR);
-        }
-        if (!storage[index]) {
-            return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
-        }
-        values = values || [];
-        let {fields, ids, persist} = storage[index];
-        if (ids.has(id)) {
-            return reject(_.sprintf(C.ID_EXISTS_ERROR, id));
-        }
-        if (!_.isUnique(values.map(v => v.field))) {
-            return reject(_.sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
-        }
-        let found;
-        found = values.find(({value, field}) => !fields[field]);
-        if (found) {
-            return reject(_.sprintf(C.COLUMN_NOT_EXISTS_ERROR, found.field));
-        }
-        found = values.find(({value, field}) => {
-            let {type, min, max} = fields[field];
-            return type == C.TYPE_INTEGER && (value < min || max < value);
-        });
-        if (found) {
-            return reject(_.sprintf(C.INTEGER_OUT_OF_RANGE_ERROR, found.field));
-        }
-        found = values.find(({value, field}) => {
-            let {type} = fields[field];
-            return type == C.TYPE_FOREIGNKEY && !(_.isInteger(value) && value > 0);
-        });
-        if (found) {
-            return reject(_.sprintf(C.FOREIGNKEY_ID_OUT_OF_RANGE_ERROR, found.field));
-        }
-        for (let {value, field} of values) {
-            let thisField = fields[field];
-            let {type, bitmaps} = thisField;
-            if (type === C.TYPE_INTEGER) {
-                thisField.bsi.add(id, value);
-                continue;
-            }
-            if (type === C.TYPE_DATE) {
-                value = _.toDateInteger(value);
-                thisField.bsi.add(id, value);
-                continue;
-            }
-            if (type === C.TYPE_DATETIME) {
-                value = _.toDateTimeInteger(value);
-                thisField.bsi.add(id, value);
-                continue;
-            }
-            if ([C.TYPE_STRING, C.TYPE_ARRAY, C.TYPE_BOOLEAN, C.TYPE_FOREIGNKEY].includes(type)) {
-                value = [value];
-                if (type == C.TYPE_ARRAY) {
-                    value = value[0].split(thisField.separator).map(v => v.trim());
-                } else if (type == C.TYPE_BOOLEAN) {
-                    value[0] = _.toBoolean(value[0]);
-                } else if (type == C.TYPE_FOREIGNKEY) {
-                    value[0] = Number(value[0]);
-                    thisField.fk.id2fk[id] = value[0];
-                }
-                for (let v of value) {
-                    if (!bitmaps[v]) {
-                        bitmaps[v] = new RoaringBitmap();
-                        bitmaps[v].persist = true;
-                    }
-                    bitmaps[v].add(id);
-                }
-                continue;
-            }
-            if ([C.TYPE_FULLTEXT, C.TYPE_TRIPLETS].includes(type)) {
-                let {noStopwords, triplets} = thisField;
-                let flag = type == C.TYPE_TRIPLETS;
-                for (let v of _.stem(value, noStopwords)) {
-                    if (!bitmaps[v]) {
-                        bitmaps[v] = new RoaringBitmap();
-                        bitmaps[v].persist = true;
-                    }
-                    bitmaps[v].add(id);
-                    if (flag) {
-                        for (let vv of _.triplets(v)) {
-                            if (!triplets[vv]) {
-                                triplets[vv] = new RoaringBitmap();
-                                triplets[vv].persist = true;
-                            }
-                            triplets[vv].add(id);
-                        }
-                    }
-                }
-                continue;
-            }
-        }
-        ids.add(id);
-        storage[index].min = Math.min(...[id, storage[index].min].filter(Number));
-        storage[index].max = Math.max(...[id, storage[index].max].filter(Number));
-        if (persist) {
-            let dir = C.DUMPDIR + '/' + index;
-            _.appendFile(
-                dir + '/CHANGES',
-                JSON.stringify({id, values}) + '\n'
-            );
-        }
-        return resolve(C.ADD_SUCCESS);
-    });
-}
+
 
 function SEARCH({index, query, sortby, desc, limit, appendFk, withCursor, bitmap, cursor, appendPos}) {
     return new Promise((resolve, reject) => {
@@ -552,17 +544,102 @@ function getTripletsBitmap(triplets, word) {
     return RoaringBitmap.andMany(t3.map(w => triplets[w] || new RoaringBitmap()));
 }
 
-module.exports = {
-    storage,
-    PING,
-    CREATE,
-    DROP,
-    ADD,
-    CURSOR,
-    SEARCH,
-    LIST,
-    STAT,
-    RENAME,
-    LOAD,
-    execute,
-};
+
+// const Grammar = require('./grammar');
+// const C = require('./constants');
+// const _ = require('./helpers');
+// const NumberIntervals = require('./NumberIntervals');
+
+
+// const storage = Object.create(null);
+// const cursors = Object.create(null);
+// const grammar = new Grammar();
+
+// function hex() {
+//     let hex;
+//     do {
+//         hex = _.generateHex();
+//     } while (hex.length < 8 || Number(hex.substring(0, 1)));
+//     return hex;
+// }
+
+// function cursorTimeout(cursor) {
+//     if (!cursors[cursor].bitmap.persist) {
+//         cursors[cursor].bitmap.clear();
+//     }
+//     delete cursors[cursor];
+// }
+//     // if (C.IS_NUMERIC(type)) {
+        //     field.bsi.add(id, value);
+        //     continue;
+        // }
+        // let vs;
+        // switch (type) {
+        //     case C.TYPES.BOOLEAN:
+        //         value = 
+        // }
+        // if (type == C.TYPES.BOOLEAN) {
+        //     let v = 
+        //     if (!bitmaps[v]) {
+        //         bitmaps[v] = new RoaringBitmap();
+        //         bitmaps[v].persist = true;
+        //     }
+        //     bitmaps[v].add(id);
+        // }
+    //     let thisField = fields[field];
+    //     let {type, bitmaps} = thisField;
+    //     if (type === C.TYPE_INTEGER) {
+    //         thisField.bsi.add(id, value);
+    //         continue;
+    //     }
+    //     if (type === C.TYPE_DATE) {
+    //         value = _.toDateInteger(value);
+    //         thisField.bsi.add(id, value);
+    //         continue;
+    //     }
+    //     if (type === C.TYPE_DATETIME) {
+    //         value = _.toDateTimeInteger(value);
+    //         thisField.bsi.add(id, value);
+    //         continue;
+    //     }
+    //     if ([C.TYPE_STRING, C.TYPE_ARRAY, C.TYPE_BOOLEAN, C.TYPE_FOREIGNKEY].includes(type)) {
+    //         value = [value];
+    //         if (type == C.TYPE_ARRAY) {
+    //             value = value[0].split(thisField.separator).map(v => v.trim());
+    //         } else if (type == C.TYPE_BOOLEAN) {
+    //             value[0] = _.toBoolean(value[0]);
+    //         } else if (type == C.TYPE_FOREIGNKEY) {
+    //             value[0] = Number(value[0]);
+    //             thisField.fk.id2fk[id] = value[0];
+    //         }
+    //         for (let v of value) {
+    //             if (!bitmaps[v]) {
+    //                 bitmaps[v] = new RoaringBitmap();
+    //                 bitmaps[v].persist = true;
+    //             }
+    //             bitmaps[v].add(id);
+    //         }
+    //         continue;
+    //     }
+    //     if ([C.TYPE_FULLTEXT, C.TYPE_TRIPLETS].includes(type)) {
+    //         let {noStopwords, triplets} = thisField;
+    //         let flag = type == C.TYPE_TRIPLETS;
+    //         for (let v of _.stem(value, noStopwords)) {
+    //             if (!bitmaps[v]) {
+    //                 bitmaps[v] = new RoaringBitmap();
+    //                 bitmaps[v].persist = true;
+    //             }
+    //             bitmaps[v].add(id);
+    //             if (flag) {
+    //                 for (let vv of _.triplets(v)) {
+    //                     if (!triplets[vv]) {
+    //                         triplets[vv] = new RoaringBitmap();
+    //                         triplets[vv].persist = true;
+    //                     }
+    //                     triplets[vv].add(id);
+    //                 }
+    //             }
+    //         }
+    //         continue;
+    //     }
+    // }

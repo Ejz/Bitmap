@@ -3,7 +3,7 @@ const C = require('./constants');
 const _ = require('./helpers');
 
 class Bsi {
-    constructor(min, max) {
+    constructor(min, max, newBitmap) {
         min = min > max ? max : min;
         this.max = max - min;
         this.zval = min;
@@ -14,15 +14,16 @@ class Bsi {
             rank /= 2;
             rank = Math.ceil(rank);
         } while (rank != 1);
-        this.bitmaps = {all: this.newBitmap(), zero: []};
+        newBitmap = newBitmap || this.newBitmap.bind(this);
+        this.bitmaps = {all: newBitmap(), zero: []};
         for (let i = 0; i < len; i++) {
-            this.bitmaps.zero.push(this.newBitmap());
+            this.bitmaps.zero.push(newBitmap());
         }
         this.len = len;
     }
 
-    newBitmap(ids = []) {
-        let bitmap = new RoaringBitmap(ids);
+    newBitmap() {
+        let bitmap = new RoaringBitmap();
         bitmap.persist = true;
         return bitmap;
     }

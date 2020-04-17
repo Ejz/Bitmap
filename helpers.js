@@ -1,3 +1,91 @@
+const sprintf = require('util').format;
+
+function isString(f) {
+    return typeof(f) == 'string';
+}
+
+function isFunction(f) {
+    return typeof(f) == 'function';
+}
+
+let isArray = Array.isArray;
+
+function isObject(o) {
+    return (!!o) && (o.constructor === Object);
+}
+
+function isNumeric(i) {
+    let n = Number(i);
+    return Number.MIN_SAFE_INTEGER <= n && n <= Number.MAX_SAFE_INTEGER;
+}
+
+function rand(min = 0, max = Number.MAX_SAFE_INTEGER) {
+    min = Number(min);
+    max = Number(max);
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function to(p) {
+    p = p.then ? p : Promise.resolve(p);
+    return p.then(data => [null, data]).catch(err => [err, null]);
+}
+
+function nsplit(str) {
+    return str.split(/\s*\n\s*/g).map(_ => _.trim()).filter(Boolean);
+}
+
+function unique(array) {
+    return array.filter((v, i, a) => a.indexOf(v) == i);
+}
+
+function filter(obj, f) {
+    if (isArray(obj)) {
+        return obj.filter(f);
+    }
+    let reducer = (res, key) => (res[key] = obj[key], res);
+    return Object.keys(obj).filter(k => f(k, obj[k])).reduce(reducer, {});
+}
+
+function toDateTimeInteger(v) {
+    v = toInteger(Date.parse(v));
+    return v === undefined ? v : Math.floor(v / 1000);
+}
+
+function toDateInteger(v) {
+    v = toDateTimeInteger(v);
+    return v === undefined ? v : Math.floor(v / 86400);
+}
+
+function toInteger(v) {
+    return isNumeric(v) ? Math.floor(Number(v)) : undefined;
+}
+
+function toBoolean(v) {
+    return ['true', '1'].includes(String(v).toLowerCase());
+}
+
+module.exports = {
+    sprintf,
+    isString,
+    isFunction,
+    isArray,
+    isObject,
+    isNumeric,
+    rand,
+    nsplit,
+    unique,
+    filter,
+    toDateTimeInteger,
+    toDateInteger,
+    toInteger,
+    toBoolean,
+};
+
+/*
+
+
+
+
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
@@ -9,7 +97,7 @@ const CR = '\r';
 const LF = '\n';
 const CRLF = CR + LF;
 
-const sprintf = require('util').format;
+
 const stopwords = require('./stopwords');
 
 function stem(sentence, noStopwords) {
@@ -40,11 +128,7 @@ function md5(string) {
     return crypto.createHash('md5').update(string).digest('hex');
 }
 
-function rand(min = 0, max = Number.MAX_SAFE_INTEGER) {
-    min = Number(min);
-    max = Number(max);
-    return Math.floor(Math.random() * (max - min + 1)) + min;
-}
+
 
 function isUnique(array) {
     return new Set(array).size == array.length;
@@ -197,18 +281,11 @@ function toBoolean(v) {
     return v ? '1' : '0';
 }
 
-function toDateInteger(v) {
-    v = toDateTimeInteger(v);
-    return Math.floor(v / (3600 * 24));
-}
 
-function toDateTimeInteger(v) {
-    let d = Date.parse(v);
-    return isInteger(d) ? d / 1000 : 0;
-}
 
+*/
 /* IS_* FUNCTIONS */
-
+/*
 function isString(f) {
     return typeof f === 'string';
 }
@@ -239,9 +316,9 @@ function isFile(file) {
         return false;
     }
 }
-
+*/
 /* FS OPERATIONS */
-
+/*
 function readFile(file) {
     if (!isFile(file)) {
         return;
@@ -294,37 +371,5 @@ function readLines(file, handle) {
         rl.on('close', resolve);
     });
 }
+*/
 
-module.exports = {
-    equal,
-    to,
-    generateHex,
-    freader,
-    md5,
-    isUnique,
-    rand,
-    toResp,
-    fromResp,
-    stem,
-    triplets,
-    byteLength,
-    sprintf,
-    castToArray,
-    isInteger,
-    toBoolean,
-    toDateInteger,
-    toDateTimeInteger,
-    isString,
-    isFunction,
-    isArray,
-    isObject,
-    isDirectory,
-    isFile,
-    readFile,
-    writeFile,
-    appendFile,
-    renameDirectory,
-    readDirectory,
-    rm,
-    readLines,
-};

@@ -41,7 +41,7 @@ test('CommandParser / tokenize / errors', () => {
         '\'\\\'',
     ];
     for (let command of commands) {
-        expect(typeof(tokenize(command)) == 'string').toEqual(true);
+        expect(() => tokenize(command)).toThrow(C.TokenizeError);
     }
 });
 
@@ -127,6 +127,6 @@ test('CommandParser / parse / errors', () => {
         'create a fields f1 datetime min \'-\'',
     ];
     for (let command of commands) {
-        expect(typeof(parse(command)) == 'string').toEqual(true);
+        expect(() => parse(command)).toThrow(C.CommandParserError);
     }
 });

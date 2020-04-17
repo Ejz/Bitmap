@@ -13,6 +13,7 @@ let SERVER = {
     SERVER_ERROR_INVALID_AUTHORIZATION: 'SERVER_ERROR_INVALID_AUTHORIZATION',
     SERVER_ERROR_INVALID_JSON: 'SERVER_ERROR_INVALID_JSON',
     SERVER_ERROR_INVALID_QUERY: 'SERVER_ERROR_INVALID_QUERY',
+    SERVER_ERROR_INTERNAL: 'SERVER_ERROR_INTERNAL',
 };
 
 let TOKENIZER_ERROR = {
@@ -96,6 +97,49 @@ let ETC = {
     IS_INTEGER: t => [TYPES.INTEGER, TYPES.DATE, TYPES.DATETIME].includes(t),
 };
 
+class GenericError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = this.constructor.name;
+    }
+}
+
+class TokenizerError extends GenericError {
+}
+
+class CommandParserError extends GenericError {
+}
+
+class QueryParserError extends GenericError {
+}
+
+class BitmapError extends GenericError {
+}
+
+// function GenericError(message, context) {
+//     this.name = GenericError.name;
+//     if (typeof(message) == 'function') {
+//         message = message(context);
+//     }
+//     this.message = message;
+//     if (Error.captureStackTrace) {
+//         Error.captureStackTrace(this, this.constructor);
+//     } else {
+//         this.stack = new Error().stack;
+//     }
+// }
+
+// GenericError.prototype = Object.create(Error.prototype);
+// GenericError.prototype.constructor = GenericError;
+
+// function TokenizerError(message) {
+//     CustomError.call(this, "Ошибка в свойстве " + property)
+//     this.name = TokenizerError.name;
+// }
+
+// TokenizerError.prototype = Object.create(GenericError.prototype);
+// TokenizerError.prototype.constructor = TokenizerError;
+
 module.exports = {
     ...DIRS,
     ...SERVER,
@@ -105,7 +149,9 @@ module.exports = {
     ...BITMAP,
     ...ETC,
     TYPES,
-    E(e, context) {
-        return typeof(e) == 'function' ? e(e, context) : String(e);
-    },
+    GenericError,
+    TokenizerError,
+    CommandParserError,
+    QueryParserError,
+    BitmapError,
 };

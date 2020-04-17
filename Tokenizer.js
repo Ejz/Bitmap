@@ -17,16 +17,16 @@ class Tokenizer {
                 }
                 let value = normalize.bind(context)(m);
                 if (value === undefined) {
-                    return C.E(C.TOKENIZER_ERROR_GENERIC);
+                    throw new C.TokenizerError(C.TOKENIZER_ERROR_GENERIC);
                 }
                 string = string.substring(m[0].length);
                 tokens.push({type, value});
                 continue w;
             }
-            return C.E(C.TOKENIZER_ERROR_GENERIC);
+            throw new C.TokenizerError(C.TOKENIZER_ERROR_GENERIC);
         }
         if (context.mode !== undefined) {
-            return C.E(C.TOKENIZER_ERROR_GENERIC);
+            throw new C.TokenizerError(C.TOKENIZER_ERROR_GENERIC);
         }
         return tokens;
     }

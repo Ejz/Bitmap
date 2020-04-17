@@ -1,9 +1,5 @@
 const RoaringBitmap = require('roaring/RoaringBitmap32');
 
-// RoaringBitmap.and = (a, b) => {
-//     return RoaringBitmap.andMany([a, b]);
-// };
-
 RoaringBitmap.andMany = (bitmaps) => {
     if (!bitmaps.length) {
         return new RoaringBitmap();

@@ -39,25 +39,25 @@ test('server / errors', async () => {
     server.listen(port);
     options.port = port;
     res = await sendRequest('', {method: 'GET'});
-    expect(res.error).toStrictEqual(C.SERVER_ERROR_INVALID_METHOD);
+    expect(res.error).toEqual(C.SERVER_ERROR_INVALID_METHOD);
     res = await sendRequest('', {contentType: 'application/javascript'});
-    expect(res.error).toStrictEqual(C.SERVER_ERROR_INVALID_CONTENT_TYPE);
+    expect(res.error).toEqual(C.SERVER_ERROR_INVALID_CONTENT_TYPE);
     res = await sendRequest('', {authorization: 'bar'});
-    expect(res.error).toStrictEqual(C.SERVER_ERROR_INVALID_AUTHORIZATION);
+    expect(res.error).toEqual(C.SERVER_ERROR_INVALID_AUTHORIZATION);
     res = await sendRequest('');
-    expect(res.error).toStrictEqual(C.SERVER_ERROR_INVALID_AUTHORIZATION);
+    expect(res.error).toEqual(C.SERVER_ERROR_INVALID_AUTHORIZATION);
     res = await sendRequest('', {authorization: 'foo'});
-    expect(res.error).toStrictEqual(C.SERVER_ERROR_INVALID_JSON);
+    expect(res.error).toEqual(C.SERVER_ERROR_INVALID_JSON);
     res = await sendRequest('""', {authorization: 'foo'});
-    expect(res.error).toStrictEqual(C.SERVER_ERROR_INVALID_JSON);
+    expect(res.error).toEqual(C.SERVER_ERROR_INVALID_JSON);
     res = await sendRequest('[""]', {authorization: 'foo'});
-    expect(res.error).toStrictEqual(C.SERVER_ERROR_INVALID_JSON);
+    expect(res.error).toEqual(C.SERVER_ERROR_INVALID_JSON);
     res = await sendRequest('[]', {authorization: 'foo'});
-    expect(res.error).toStrictEqual(C.SERVER_ERROR_INVALID_JSON);
+    expect(res.error).toEqual(C.SERVER_ERROR_INVALID_JSON);
     res = await sendRequest('{"q":1}', {authorization: 'foo'});
-    expect(res.error).toStrictEqual(C.SERVER_ERROR_INVALID_QUERY);
+    expect(res.error).toEqual(C.SERVER_ERROR_INVALID_QUERY);
     res = await sendRequest('{"query":1}', {authorization: 'foo'});
-    expect(res.error).toStrictEqual(C.SERVER_ERROR_INVALID_QUERY);
+    expect(res.error).toEqual(C.SERVER_ERROR_INVALID_QUERY);
     await new Promise((resolve, reject) => {
         setTimeout(() => {
             server.close();
@@ -72,14 +72,14 @@ test('server / id', async () => {
     server.listen(port);
     options.port = port;
     res = await sendRequest('{"query":"PING"}');
-    expect(res.result).toStrictEqual(C.BITMAP_OK);
+    expect(res.result).toEqual(C.BITMAP_OK);
     res = await sendRequest('{"query":"!"}');
-    expect(!!res.error).toStrictEqual(true);
-    expect('id' in res).toStrictEqual(false);
+    expect(!!res.error).toEqual(true);
+    expect('id' in res).toEqual(false);
     res = await sendRequest('{"query": "PING","id":1}');
-    expect(res.id).toStrictEqual(1);
+    expect(res.id).toEqual(1);
     res = await sendRequest('{"query": "PING","id":"1"}');
-    expect(res.id).toStrictEqual('1');
+    expect(res.id).toEqual('1');
     await new Promise((resolve, reject) => {
         setTimeout(() => {
             server.close();
@@ -94,16 +94,16 @@ test('server / batch', async () => {
     server.listen(port);
     options.port = port;
     res = await sendRequest('[{"query":"PING"},{"query":"a"}]');
-    expect(res[0].result).toStrictEqual(C.BITMAP_OK);
-    expect(res[1].error).toStrictEqual(C.COMMAND_PARSER_ERROR_EXPECT_KW);
+    expect(res[0].result).toEqual(C.BITMAP_OK);
+    expect(res[1].error).toMatch(/CommandParserError/);
     res = await sendRequest('[{"query":"PING","id":null},{"query":"a"}]');
-    expect(res[0].result).toStrictEqual(C.BITMAP_OK);
-    expect(res[0].id).toStrictEqual(null);
-    expect(res[1].error).toStrictEqual(C.COMMAND_PARSER_ERROR_EXPECT_KW);
-    expect(res[1].id).toStrictEqual(undefined);
-    expect('id' in res[1]).toStrictEqual(false);
+    expect(res[0].result).toEqual(C.BITMAP_OK);
+    expect(res[0].id).toEqual(null);
+    expect(res[1].error).toMatch(/CommandParserError/);
+    expect(res[1].id).toEqual(undefined);
+    expect('id' in res[1]).toEqual(false);
     res = await sendRequest('[{"query":"!","id":{"a":"b"}}]');
-    expect(res[0].id).toStrictEqual({a: 'b'});
+    expect(res[0].id).toEqual({a: 'b'});
     await new Promise((resolve, reject) => {
         setTimeout(() => {
             server.close();

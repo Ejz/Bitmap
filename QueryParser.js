@@ -103,7 +103,7 @@ class QueryParser {
             $(tag).before('<and></and>');
         });
         if ($('value,ident,colon').length) {
-            throw C.QUERY_PARSER_ERROR_INVALID_INPUT;
+            throw new C.QueryParserError(C.QUERY_PARSER_ERROR_INVALID_INPUT);
         }
         html = $.html();
         html = html.replace('<html><head></head><body>', '');
@@ -186,7 +186,7 @@ class QueryParser {
             }
         }
         if (stack.length > 1) {
-            throw C.QUERY_PARSER_ERROR_STACK_IS_NOT_EMPTY;
+            throw new C.QueryParserError(C.QUERY_PARSER_ERROR_STACK_IS_NOT_EMPTY);
         }
         return stack.pop();
     }

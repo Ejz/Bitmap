@@ -39,7 +39,7 @@ test('QueryParser / tokenize / errors', () => {
         '@да',
     ];
     for (let query of queries) {
-        expect(typeof(tokenize(query)) == 'string').toEqual(true);
+        expect(() => tokenize(query)).toThrow(C.TokenizerError);
     }
 });
 

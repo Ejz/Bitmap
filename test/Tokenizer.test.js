@@ -37,8 +37,7 @@ test('Tokenizer / 2', () => {
     let tokens1 = new Tokenizer(rules).tokenize('"a\\"\\\\\\b"');
     expect(tokens1.map(v => v.value).join('')).toEqual('a"\\\\b');
     //
-    let tokens2 = new Tokenizer(rules).tokenize('"\\"');
-    expect(typeof(tokens2) == 'string').toEqual(true);
+    expect(() => new Tokenizer(rules).tokenize('"\\"')).toThrow(C.TokenizerError);
 });
 
 test('Tokenizer / 3', () => {
@@ -56,6 +55,5 @@ test('Tokenizer / 3', () => {
     let tokens1 = new Tokenizer(rules).tokenize(' 101 ');
     expect(tokens1[0]).toEqual({type: 'INTEGER', value: 101});
     //
-    let tokens2 = new Tokenizer(rules).tokenize(' 101000000000000000000 ');
-    expect(typeof(tokens2) == 'string').toEqual(true);
+    expect(() => new Tokenizer(rules).tokenize(' 101000000000000000000 ')).toThrow(C.TokenizerError);
 });

@@ -36,8 +36,13 @@ function createServer(auth) {
                     results.push({error: C.SERVER_ERROR_INVALID_QUERY, id: js.id});
                     continue;
                 }
-                let ret = bitmap.execute(js.query);
-                let key = (_.isString(ret) && ret != C.BITMAP_OK) ? 'error' : 'result';
+                let ret, key = 'result';
+                try {
+                    ret = bitmap.execute(js.query);
+                } catch (e) {
+                    key = 'error';
+                    ret = e instanceof C.GenericError ? String(e) : C.SERVER_ERROR_INTERNAL;
+                }
                 results.push({[key]: ret, id: js.id});
             }
             results = isArray ? results : results[0];

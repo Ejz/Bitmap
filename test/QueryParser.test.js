@@ -47,6 +47,11 @@ test('QueryParser / tokenize / 3', () => {
     ]);
 });
 
+test('QueryParser / tokenize / 4', () => {
+    let r1 = tokenize('@a < 5 & @b >= 2');
+    expect(r1[0].type).toEqual('IDENT');
+});
+
 test('QueryParser / tokenize / errors', () => {
     let queries = [
         '@&',

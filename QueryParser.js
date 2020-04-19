@@ -18,11 +18,15 @@ let rules = {
         m => true,
     ],
     VALUE: [
-        /^([^\s@\]\[,:&\|\)\(-]+)\s*/i,
+        /^([^\s<>=@\]\[,:&\|\)\(-]+)\s*/i,
         m => m[1],
     ],
-    RANGE: [
+    RANGE1: [
         /^\[([^\]]*)\]\s*/i,
+        m => m[1],
+    ],
+    RANGE2: [
+        /^(>=|<=|>|<)\s*/i,
         m => m[1],
     ],
 };
@@ -33,8 +37,9 @@ class QueryParser {
     }
     tokenize(string) {
         let tokens = this.tokenizer.tokenize(string);
+        let extoken;
         tokens = tokens.map(token => {
-            if (token.type == 'RANGE') {
+            if (token.type == 'RANGE1') {
                 let excFrom = false, from, to, excTo = false;
                 let parts = token.value.split(',').slice(0, 2).map(v => v.trim());
                 if (parts.length == 2) {
@@ -62,6 +67,20 @@ class QueryParser {
                 token.type = 'VALUE';
                 return token;
             }
+            if (token.type == 'VALUE' && extoken && extoken.type == 'RANGE2') {
+                let v = extoken.value;
+                let less = ~v.indexOf('<');
+                token.value = [
+                    v == '>',
+                    less ? 'min' : token.value,
+                    less ? token.value : 'max',
+                    v == '<',
+                ];
+                extoken.type = 'SPECIAL';
+                extoken.value = ':';
+                return token;
+            }
+            extoken = token;
             return token;
         });
         return tokens;

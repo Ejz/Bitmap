@@ -62,7 +62,7 @@ test('bitmap / ADD', () => {
     bitmap.execute('drop a');
 });
 
-test('bitmap / SEARCH', () => {
+test('bitmap / SEARCH / 1', () => {
     bitmap.execute('create index fields f1 string');
     let strings = ['foo', 'bar', 'hello', 'world'];
     let id = 1;
@@ -94,6 +94,38 @@ test('bitmap / SEARCH', () => {
         '-@f1:bar': [1, 3, 4],
         '-@f1:(bar|foo)': [3, 4],
         '-@f1:bar & @f1:(unknown|foo)': [1],
+    };
+    let res;
+    for (let [query, result] of Object.entries(cases)) {
+        [, ...res] = bitmap.execute(`search index '${query}'`);
+        expect(res).toEqual(result);
+    }
+    bitmap.execute('drop index');
+});
+
+test('bitmap / SEARCH / 2', () => {
+    bitmap.execute('create index fields f1 integer min 1 max 5');
+    let strings = ['1', '2', '3', '4', '5'];
+    let id = 1;
+    for (let string of strings) {
+        bitmap.execute(`add index ${id++} values f1 '${string}'`);
+    }
+    let cases = {
+        '@f1:[1]': [1],
+        '@f1:[1,3]': [1, 2, 3],
+        '@f1:[(1,3]': [2, 3],
+        '@f1:[1,3)]': [1, 2],
+        '@f1:[ 1 , 3 ) ]': [1, 2],
+        '-@f1:[1,3)]': [3, 4, 5],
+        '@f1:[min,max]': [1, 2, 3, 4, 5],
+        '@f1:[,max]': [1, 2, 3, 4, 5],
+        '@f1:[min,]': [1, 2, 3, 4, 5],
+        '@f1:[,]': [1, 2, 3, 4, 5],
+        '@f1:[(,)]': [2, 3, 4],
+        '-@f1:[(,)]': [1, 5],
+        '-@f1:[(min,max)]': [1, 5],
+        '@f1:([min] | [max])': [1, 5],
+        '-@f1:([min] | [max])': [2, 3, 4],
     };
     let res;
     for (let [query, result] of Object.entries(cases)) {

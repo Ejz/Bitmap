@@ -2,7 +2,7 @@ const RoaringBitmap = require('./RoaringBitmap');
 const C = require('./constants');
 const _ = require('./helpers');
 
-class Bsi {
+class BSI {
     constructor(min, max, newBitmap) {
         min = min > max ? max : min;
         this.max = max - min;
@@ -91,4 +91,4 @@ class Bsi {
     }
 }
 
-module.exports = Bsi;
+module.exports = BSI;

@@ -15,7 +15,7 @@ function isObject(o) {
 }
 
 function isNumeric(i) {
-    let n = Number(i);
+    let n = i !== '' ? Number(i) : NaN;
     return Number.MIN_SAFE_INTEGER <= n && n <= Number.MAX_SAFE_INTEGER;
 }
 

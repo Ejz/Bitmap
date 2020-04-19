@@ -7,13 +7,24 @@ test('rand', () => {
     expect(_.rand(-1, -1)).toBe(-1);
 });
 
+test('toInteger', () => {
+    expect(_.toInteger('foo')).toEqual(undefined);
+    expect(_.toInteger('')).toEqual(undefined);
+});
+
 test('toDateInteger', () => {
     expect(_.toDateInteger('foo')).toEqual(undefined);
+    expect(_.toDateInteger('')).toEqual(undefined);
 });
 
 test('toDateTimeInteger', () => {
     expect(_.toDateTimeInteger('foo')).toEqual(undefined);
+    expect(_.toDateTimeInteger('')).toEqual(undefined);
 });
+
+// test('toDateTimeInteger', () => {
+//     expect(_.toDateTimeInteger('foo')).toEqual(undefined);
+// });
 
 // const CRLF = '\r\n';
 

@@ -10,7 +10,7 @@ let rules = {
         m => m[1].toLowerCase(),
     ],
     SPECIAL: [
-        /^([-:&\|\)\(])\s*/,
+        /^([:&\|\)\(-])\s*/,
         m => m[1],
     ],
     ALL: [
@@ -18,7 +18,11 @@ let rules = {
         m => true,
     ],
     VALUE: [
-        /^([^\s@:&\|\)\(]+)\s*/i,
+        /^([^\s@\]\[,:&\|\)\(-]+)\s*/i,
+        m => m[1],
+    ],
+    RANGE: [
+        /^\[([^\]]*)\]\s*/i,
         m => m[1],
     ],
 };
@@ -29,9 +33,37 @@ class QueryParser {
     }
     tokenize(string) {
         let tokens = this.tokenizer.tokenize(string);
-        if (_.isString(tokens)) {
-            return tokens;
-        }
+        tokens = tokens.map(token => {
+            if (token.type == 'RANGE') {
+                let excFrom = false, from, to, excTo = false;
+                let parts = token.value.split(',').slice(0, 2).map(v => v.trim());
+                if (parts.length == 2) {
+                    [from, to] = parts;
+                    if (from.length && from[0] == '(') {
+                        excFrom = true;
+                        from = from.replace(/^\(\s*/, '');
+                    }
+                    if (to.length && to[to.length - 1] == ')') {
+                        excTo = true;
+                        to = to.replace(/\s*\)$/, '');
+                    }
+                    from = ['', 'min'].includes(from.toLowerCase()) ? 'min' : from;
+                    to = ['', 'max'].includes(to.toLowerCase()) ? 'max' : to;
+                } else {
+                    [from] = parts;
+                    if (from == '') {
+                        throw new C.QueryParserError(C.QUERY_PARSER_ERROR_INVALID_INPUT);
+                    }
+                    let _ = from.toLowerCase();
+                    from = ['min', 'max'].includes(_) ? _ : from;
+                    to = from;
+                }
+                token.value = [excFrom, from, to, excTo];
+                token.type = 'VALUE';
+                return token;
+            }
+            return token;
+        });
         return tokens;
     }
     tokens2terms(tokens) {

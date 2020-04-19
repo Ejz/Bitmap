@@ -33,6 +33,20 @@ test('QueryParser / tokenize / 2', () => {
     expect(r1[0]).toEqual({type: 'ALL', value: true});
 });
 
+test('QueryParser / tokenize / 3', () => {
+    let r1 = tokenize('[ a,b ]');
+    expect(r1[0]).toEqual({type: 'VALUE', value: [false, 'a', 'b', false]});
+    //
+    let r2 = tokenize('asd1@asd2:asd3[asd4]');
+    expect(r2).toEqual([
+        {type: 'VALUE', value: 'asd1'},
+        {type: 'IDENT', value: 'asd2'},
+        {type: 'SPECIAL', value: ':'},
+        {type: 'VALUE', value: 'asd3'},
+        {type: 'VALUE', value: [false, 'asd4', 'asd4', false]},
+    ]);
+});
+
 test('QueryParser / tokenize / errors', () => {
     let queries = [
         '@&',

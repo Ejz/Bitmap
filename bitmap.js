@@ -9,6 +9,12 @@ let storage = Object.create(null);
 
 let isUnique = arr => arr.length == _.unique(arr).length;
 
+let type2cast = {
+    [C.TYPES.INTEGER]: 'toInteger',
+    [C.TYPES.DATE]: 'toDateInteger',
+    [C.TYPES.DATETIME]: 'toDateTimeInteger',
+};
+
 function newBitmap() {
     let bm = new RoaringBitmap();
     bm.persist = true;
@@ -22,19 +28,11 @@ function execute(query) {
     let commandParser = new CommandParser();
     let tokens = commandParser.tokenize(query);
     let command = commandParser.parse(tokens);
-    if (_.isString(command)) {
-        return command;
-    }
     let action = String(command.action || '');
     if (!module.exports[action]) {
-        return C.E(C.BITMAP_ERROR_UNKNOWN_COMMAND);
+        throw new C.BitmapError(C.BITMAP_ERROR_UNKNOWN_COMMAND);
     }
-    try {
-        return module.exports[action](command);
-    } catch (e) {
-        e = _.isArray(e) ? e : [e];
-        return C.E(...e);
-    }
+    return module.exports[action](command);
 }
 
 function PING() {
@@ -47,7 +45,7 @@ function LIST() {
 
 function CREATE({index, fields}) {
     if (storage[index]) {
-        throw C.BITMAP_ERROR_INDEX_EXISTS;
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_EXISTS);
     }
     for (let [, field] of Object.entries(fields)) {
         let {type} = field;
@@ -71,7 +69,7 @@ function CREATE({index, fields}) {
 
 function DROP({index}) {
     if (!storage[index]) {
-        throw C.BITMAP_ERROR_INDEX_NOT_EXISTS;
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
     }
     delete storage[index];
     return C.BITMAP_OK;
@@ -79,10 +77,10 @@ function DROP({index}) {
 
 function RENAME({index, name}) {
     if (!storage[index]) {
-        throw C.BITMAP_ERROR_INDEX_NOT_EXISTS;
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
     }
     if (storage[name]) {
-        throw C.BITMAP_ERROR_INDEX_EXISTS;
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_EXISTS);
     }
     storage[name] = storage[index];
     delete storage[index];
@@ -103,7 +101,7 @@ function STAT({index}) {
         return reply;
     }
     if (!storage[index]) {
-        throw C.BITMAP_ERROR_INDEX_NOT_EXISTS;
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
     }
     index = storage[index];
     let size = index.ids.size;
@@ -118,15 +116,15 @@ function STAT({index}) {
 
 function ADD({index, id, values}) {
     if (!storage[index]) {
-        throw C.BITMAP_ERROR_INDEX_NOT_EXISTS;
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
     }
     let {ids, fields} = storage[index];
     if (ids.has(id)) {
-        throw C.BITMAP_ERROR_ID_EXISTS;
+        throw new C.BitmapError(C.BITMAP_ERROR_ID_EXISTS);
     }
     let f1 = Object.entries(values).find(([field]) => !fields[field]);
     if (f1) {
-        throw C.BITMAP_ERROR_FIELD_NOT_EXISTS;
+        throw new C.BitmapError(C.BITMAP_ERROR_FIELD_NOT_EXISTS);
     }
     let f2 = Object.entries(values).find(([field, value]) =>
         C.IS_INTEGER(fields[field].type) && (
@@ -134,7 +132,7 @@ function ADD({index, id, values}) {
         )
     );
     if (f2) {
-        throw C.BITMAP_ERROR_OUT_OF_RANGE;
+        throw new C.BitmapError(C.BITMAP_ERROR_OUT_OF_RANGE);
     }
     for (let [field, value] of Object.entries(values)) {
         field = fields[field];
@@ -147,34 +145,34 @@ function ADD({index, id, values}) {
             case C.TYPES.INTEGER:
                 value = _.toInteger(value);
                 if (value === undefined) {
-                    throw C.BITMAP_ERROR_EXPECT_INTEGER;
+                    throw new C.BitmapError(C.BITMAP_ERROR_EXPECT_INTEGER);
                 }
                 field.bsi.add(id, value);
                 break;
             case C.TYPES.DATE:
                 value = _.toDateInteger(value);
                 if (value === undefined) {
-                    throw C.BITMAP_ERROR_EXPECT_DATE;
+                    throw new C.BitmapError(C.BITMAP_ERROR_EXPECT_DATE);
                 }
                 field.bsi.add(id, value);
                 break;
             case C.TYPES.DATETIME:
                 value = _.toDateTimeInteger(value);
                 if (value === undefined) {
-                    throw C.BITMAP_ERROR_EXPECT_DATETIME;
+                    throw new C.BitmapError(C.BITMAP_ERROR_EXPECT_DATETIME);
                 }
                 field.bsi.add(id, value);
                 break;
             case C.TYPES.BOOLEAN:
                 value = _.toBoolean(value);
-                toBitmap(value);
+                toBitmap(value ? '1' : '0');
                 break;
             case C.TYPES.STRING:
                 toBitmap(String(value));
                 break;
             case C.TYPES.ARRAY:
-                value = String(value).split(separator).map(v => v.trim());
-                value.filter(Boolean).forEach(toBitmap);
+                value = String(value).split(separator);
+                _.unique(value).forEach(toBitmap);
                 break;
             // case C.TYPES.FOREIGNKEY:
             //     value = _.toInteger(value);
@@ -196,7 +194,7 @@ function ADD({index, id, values}) {
 
 function SEARCH({index, query, limit}) {
     if (!storage[index]) {
-        throw C.BITMAP_ERROR_INDEX_NOT_EXISTS;
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
     }
     let {fields, ids} = storage[index];
     let queryParser = new QueryParser();
@@ -209,12 +207,33 @@ function SEARCH({index, query, limit}) {
         }
         let {field, value} = term;
         if (!fields[field]) {
-            throw C.BITMAP_ERROR_FIELD_NOT_EXISTS;
+            throw new C.BitmapError(C.BITMAP_ERROR_FIELD_NOT_EXISTS);
         }
-        let {type, bitmaps} = fields[field];
+        let {type, bitmaps, min, max, bsi} = fields[field];
+        let mm = {min, max};
+        let excFrom, from, to, excTo;
+        let z = new RoaringBitmap();
         switch (type) {
             case C.TYPES.STRING:
-                return bitmaps[String(value)] || new RoaringBitmap();
+            case C.TYPES.ARRAY:
+                return _.isString(value) ? (bitmaps[value] || z) : z;
+            case C.TYPES.BOOLEAN:
+                return _.isString(value) ? (bitmaps[_.toBoolean(value) ? '1' : '0'] || z) : z;
+            case C.TYPES.INTEGER:
+            case C.TYPES.DATE:
+            case C.TYPES.DATETIME:
+                if (!_.isArray(value)) {
+                    return z;
+                }
+                [excFrom, from, to, excTo] = value;
+                from = from in mm ? mm[from] : _[type2cast[type]](from);
+                to = to in mm ? mm[to] : _[type2cast[type]](to);
+                if (from === undefined || to === undefined) {
+                    return z;
+                }
+                from += excFrom ? 1 : 0;
+                to -= excTo ? 1 : 0;
+                return bsi.getBitmap(from, to);
         }
     });
     let ret = [bitmap.size];
@@ -240,258 +259,158 @@ module.exports = {
     SEARCH,
 };
 
+// function getBitmap(index, query) {
+//     if (query.values) {
+//         let {values, field, fk} = query;
+//         if (fk) {
+//             if (!storage[fk]) {
+//                 throw _.sprintf(C.INDEX_NOT_EXISTS_ERROR, fk);
+//             }
+//             let {fields} = storage[fk];
+//             let fks = Object.values(fields).filter(
+//                 ({type, fk}) => type == C.TYPE_FOREIGNKEY && fk.fk == index
+//             );
+//             if (!fks.length) {
+//                 throw _.sprintf(C.FOREIGNKEY_NOT_FOUND_ERROR, index, fk);
+//             }
+//             if (fks.length > 1) {
+//                 throw _.sprintf(C.FOREIGNKEY_AMBIGUOUS_ERROR, index, fk);
+//             }
+//             let {id2fk} = fks[0].fk;
+//             let bitmap = new RoaringBitmap();
+//             for (let id of getBitmap(fk, values)) {
+//                 bitmap.add(id2fk[id]);
+//             }
+//             return bitmap;
+//         }
+//         if (values.includes('*')) {
+//             return storage[index].ids;
+//         }
+//         if (!values.length) {
+//             return new RoaringBitmap();
+//         }
+//         if (values.length > 1) {
+//             let queries = values.map(v => ({values: [v], field}));
+//             return getOrBitmap(index, queries);
+//         }
+//         let [value] = values;
+//         if (field && !storage[index].fields[field]) {
+//             throw _.sprintf(C.COLUMN_NOT_EXISTS_ERROR, field);
+//         }
+//         let indexTypes = [C.TYPE_FULLTEXT, C.TYPE_TRIPLETS];
+//         if (!field) {
+//             let fields = Object.entries(storage[index].fields);
+//             fields = fields.filter(([k, v]) => indexTypes.includes(v.type));
+//             fields = fields.map(([k]) => k);
+//             if (!fields.length) {
+//                 return new RoaringBitmap();
+//             }
+//             let queries = fields.map(field => ({values, field}));
+//             return getOrBitmap(index, queries);
+//         }
+//         let thisField = storage[index].fields[field];
+//         let {type, bitmaps, triplets} = thisField;
+//         if (type === C.TYPE_BOOLEAN) {
+//             value = _.toBoolean(value);
+//             return bitmaps[value] || new RoaringBitmap();
+//         }
+//         if ([C.TYPE_STRING, C.TYPE_ARRAY].includes(type)) {
+//             return bitmaps[value] || new RoaringBitmap();
+//         }
+//         if (indexTypes.includes(type)) {
+//             let last, flag = value.length && value[0] == '^';
+//             if (flag && type != C.TYPE_TRIPLETS) {
+//                 return new RoaringBitmap();
+//             }
+//             let words = _.stem(value, thisField.noStopwords);
+//             if (flag && words.length) {
+//                 last = words.pop();
+//             }
+//             words = words.map(w => bitmaps[w] || new RoaringBitmap());
+//             if (last !== undefined) {
+//                 words.push(getTripletsBitmap(triplets, last));
+//             }
+//             return RoaringBitmap.andMany(words);
+//         }
+//         if (type == C.TYPE_INTEGER) {
+//             if (!Array.isArray(value)) {
+//                 value = [value, value];
+//             }
+//             let [from, to] = value;
+//             from = _.isInteger(from) ? from : undefined;
+//             to = _.isInteger(to) ? to : undefined;
+//             return thisField.bsi.getBitmap(from, to);
+//         }
+//         if (type == C.TYPE_DATE) {
+//             if (!Array.isArray(value)) {
+//                 value = [value, value];
+//             }
+//             let [from, to] = value;
+//             from = _.toDateInteger(from);
+//             to = _.toDateInteger(to);
+//             from = _.isInteger(from) ? from : undefined;
+//             to = _.isInteger(to) ? to : undefined;
+//             return thisField.bsi.getBitmap(from, to);
+//         }
+//         if (type === C.TYPE_FOREIGNKEY) {
+//             if (!_.isInteger(value)) {
+//                 return new RoaringBitmap();
+//             }
+//             value = Number(value);
+//             return bitmaps[value] || new RoaringBitmap();
+//         }
+//     }
+//     let {op, queries} = query;
+//     op = op || '&';
+//     if (op === '&') {
+//         return getAndBitmap(index, queries);
+//     }
+//     if (op === '|') {
+//         return getOrBitmap(index, queries);
+//     }
+//     if (op === '-') {
+//         return getNotBitmap(index, queries);
+//     }
+// }
 
+// function getAndBitmap(index, queries) {
+//     queries = queries.map(query => {
+//         if (!(query instanceof RoaringBitmap)) {
+//             query = getBitmap(index, query);
+//         }
+//         return query;
+//     });
+//     return RoaringBitmap.andMany(queries);
+// }
 
-function CREATEOLD({index, fields, persist}) {
-    return new Promise((resolve, reject) => {
-        if (!index) {
-            return reject(C.INVALID_INDEX_ERROR);
-        }
-        if (storage[index]) {
-            return reject(_.sprintf(C.INDEX_EXISTS_ERROR, index));
-        }
-        fields = fields || [];
-        if (!_.isUnique(fields.map(f => f.field))) {
-            return reject(_.sprintf(C.DUPLICATE_COLUMNS_ERROR, index));
-        }
-        let found = fields.find(f => f.field == C.ID_FIELD);
-        if (found) {
-            return reject(C.ID_FIELD_IS_FORBIDDEN_ERROR);
-        }
-        if (storage[index]) {
-            return reject(_.sprintf(C.INDEX_EXISTS_ERROR, index));
-        }
-        let f = Object.create(null);
-        for (let thisField of fields) {
-            let {
-                field, type, min, max,
-                fk, separator, noStopwords,
-            } = thisField;
-            let triplets, bsi, bitmaps = Object.create(null);
-            if ([C.TYPE_INTEGER, C.TYPE_DATE, C.TYPE_DATETIME].includes(type)) {
-                bsi = new BSI(min, max);
-                bitmaps = undefined;
-            } else if (type == C.TYPE_FOREIGNKEY) {
-                fk = {fk, id2fk: Object.create(null)};
-            } else if (type == C.TYPE_TRIPLETS) {
-                triplets = Object.create(null);
-            }
-            f[field] = {
-                type,
-                ...(bitmaps !== undefined ? {bitmaps} : {}),
-                ...(bsi !== undefined ? {bsi} : {}),
-                ...(min !== undefined ? {min} : {}),
-                ...(max !== undefined ? {max} : {}),
-                ...(fk !== undefined ? {fk} : {}),
-                ...(separator !== undefined ? {separator} : {}),
-                ...(noStopwords !== undefined ? {noStopwords} : {}),
-                ...(triplets !== undefined ? {triplets} : {}),
-            };
-        }
-        let ids = new RoaringBitmap();
-        ids.persist = true;
-        storage[index] = {fields: f, ids, persist};
-        if (persist) {
-            let dir = C.DUMPDIR + '/' + index;
-            _.rm(dir);
-            _.writeFile(
-                dir + '/CREATE',
-                JSON.stringify({fields}) + '\n'
-            );
-            _.writeFile(dir + '/CHANGES', '');
-        }
-        return resolve(C.CREATE_SUCCESS);
-    });
-}
+// function getOrBitmap(index, queries) {
+//     queries = queries.map(query => {
+//         if (!(query instanceof RoaringBitmap)) {
+//             query = getBitmap(index, query);
+//         }
+//         return query;
+//     });
+//     return RoaringBitmap.orMany(queries);
+// }
 
-function DROPOLD({index}) {
-    return new Promise((resolve, reject) => {
-        if (!index) {
-            return reject(C.INVALID_INDEX_ERROR);
-        }
-        if (!storage[index]) {
-            return reject(_.sprintf(C.INDEX_NOT_EXISTS_ERROR, index));
-        }
-        delete storage[index];
-        return resolve(C.DROP_SUCCESS);
-    });
-}
+// function getNotBitmap(index, [query]) {
+//     if (!(query instanceof RoaringBitmap)) {
+//         query = getBitmap(index, query);
+//     }
+//     let {min, max} = storage[index];
+//     return RoaringBitmap.not(query, min, max);
+// }
 
-
-
-
-
-
-
-function CURSOR({index: cursor, limit}) {
-    return new Promise(async (resolve, reject) => {
-        if (!cursor || !cursors[cursor]) {
-            return reject(C.INVALID_CURSOR_ERROR);
-        }
-        let {index, sortby, desc, tid, bitmap, appendFk} = cursors[cursor];
-        clearTimeout(tid);
-        tid = setTimeout(cursorTimeout, C.CURSOR_TIMEOUT, cursor);
-        cursors[cursor].tid = tid;
-        let values = await SEARCH({
-            index, sortby, desc, limit: [0, limit], appendFk,
-            bitmap, cursor: cursors[cursor],
-        });
-        return resolve(values);
-    });
-}
-
-function getBitmap(index, query) {
-    if (query.values) {
-        let {values, field, fk} = query;
-        if (fk) {
-            if (!storage[fk]) {
-                throw _.sprintf(C.INDEX_NOT_EXISTS_ERROR, fk);
-            }
-            let {fields} = storage[fk];
-            let fks = Object.values(fields).filter(
-                ({type, fk}) => type == C.TYPE_FOREIGNKEY && fk.fk == index
-            );
-            if (!fks.length) {
-                throw _.sprintf(C.FOREIGNKEY_NOT_FOUND_ERROR, index, fk);
-            }
-            if (fks.length > 1) {
-                throw _.sprintf(C.FOREIGNKEY_AMBIGUOUS_ERROR, index, fk);
-            }
-            let {id2fk} = fks[0].fk;
-            let bitmap = new RoaringBitmap();
-            for (let id of getBitmap(fk, values)) {
-                bitmap.add(id2fk[id]);
-            }
-            return bitmap;
-        }
-        if (values.includes('*')) {
-            return storage[index].ids;
-        }
-        if (!values.length) {
-            return new RoaringBitmap();
-        }
-        if (values.length > 1) {
-            let queries = values.map(v => ({values: [v], field}));
-            return getOrBitmap(index, queries);
-        }
-        let [value] = values;
-        if (field && !storage[index].fields[field]) {
-            throw _.sprintf(C.COLUMN_NOT_EXISTS_ERROR, field);
-        }
-        let indexTypes = [C.TYPE_FULLTEXT, C.TYPE_TRIPLETS];
-        if (!field) {
-            let fields = Object.entries(storage[index].fields);
-            fields = fields.filter(([k, v]) => indexTypes.includes(v.type));
-            fields = fields.map(([k]) => k);
-            if (!fields.length) {
-                return new RoaringBitmap();
-            }
-            let queries = fields.map(field => ({values, field}));
-            return getOrBitmap(index, queries);
-        }
-        let thisField = storage[index].fields[field];
-        let {type, bitmaps, triplets} = thisField;
-        if (type === C.TYPE_BOOLEAN) {
-            value = _.toBoolean(value);
-            return bitmaps[value] || new RoaringBitmap();
-        }
-        if ([C.TYPE_STRING, C.TYPE_ARRAY].includes(type)) {
-            return bitmaps[value] || new RoaringBitmap();
-        }
-        if (indexTypes.includes(type)) {
-            let last, flag = value.length && value[0] == '^';
-            if (flag && type != C.TYPE_TRIPLETS) {
-                return new RoaringBitmap();
-            }
-            let words = _.stem(value, thisField.noStopwords);
-            if (flag && words.length) {
-                last = words.pop();
-            }
-            words = words.map(w => bitmaps[w] || new RoaringBitmap());
-            if (last !== undefined) {
-                words.push(getTripletsBitmap(triplets, last));
-            }
-            return RoaringBitmap.andMany(words);
-        }
-        if (type == C.TYPE_INTEGER) {
-            if (!Array.isArray(value)) {
-                value = [value, value];
-            }
-            let [from, to] = value;
-            from = _.isInteger(from) ? from : undefined;
-            to = _.isInteger(to) ? to : undefined;
-            return thisField.bsi.getBitmap(from, to);
-        }
-        if (type == C.TYPE_DATE) {
-            if (!Array.isArray(value)) {
-                value = [value, value];
-            }
-            let [from, to] = value;
-            from = _.toDateInteger(from);
-            to = _.toDateInteger(to);
-            from = _.isInteger(from) ? from : undefined;
-            to = _.isInteger(to) ? to : undefined;
-            return thisField.bsi.getBitmap(from, to);
-        }
-        if (type === C.TYPE_FOREIGNKEY) {
-            if (!_.isInteger(value)) {
-                return new RoaringBitmap();
-            }
-            value = Number(value);
-            return bitmaps[value] || new RoaringBitmap();
-        }
-    }
-    let {op, queries} = query;
-    op = op || '&';
-    if (op === '&') {
-        return getAndBitmap(index, queries);
-    }
-    if (op === '|') {
-        return getOrBitmap(index, queries);
-    }
-    if (op === '-') {
-        return getNotBitmap(index, queries);
-    }
-}
-
-function getAndBitmap(index, queries) {
-    queries = queries.map(query => {
-        if (!(query instanceof RoaringBitmap)) {
-            query = getBitmap(index, query);
-        }
-        return query;
-    });
-    return RoaringBitmap.andMany(queries);
-}
-
-function getOrBitmap(index, queries) {
-    queries = queries.map(query => {
-        if (!(query instanceof RoaringBitmap)) {
-            query = getBitmap(index, query);
-        }
-        return query;
-    });
-    return RoaringBitmap.orMany(queries);
-}
-
-function getNotBitmap(index, [query]) {
-    if (!(query instanceof RoaringBitmap)) {
-        query = getBitmap(index, query);
-    }
-    let {min, max} = storage[index];
-    return RoaringBitmap.not(query, min, max);
-}
-
-function getTripletsBitmap(triplets, word) {
-    let t3 = _.triplets(word);
-    if (t3.length > 1) {
-        t3.shift();
-    }
-    if (t3.length > 1) {
-        t3.shift();
-    }
-    return RoaringBitmap.andMany(t3.map(w => triplets[w] || new RoaringBitmap()));
-}
+// function getTripletsBitmap(triplets, word) {
+//     let t3 = _.triplets(word);
+//     if (t3.length > 1) {
+//         t3.shift();
+//     }
+//     if (t3.length > 1) {
+//         t3.shift();
+//     }
+//     return RoaringBitmap.andMany(t3.map(w => triplets[w] || new RoaringBitmap()));
+// }
 
 
 // const Grammar = require('./grammar');

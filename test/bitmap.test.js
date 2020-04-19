@@ -129,6 +129,9 @@ test('bitmap / SEARCH / 2', () => {
         '@f1>1': [2, 3, 4, 5],
         '@f1 < 5': [1, 2, 3, 4],
         '@f1 < 5 & @f1 >= 2': [2, 3, 4],
+        '@f1:1': [1],
+        '@f1:Max': [5],
+        '@f1:Min': [1],
     };
     let res;
     for (let [query, result] of Object.entries(cases)) {

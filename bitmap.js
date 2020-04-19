@@ -222,12 +222,15 @@ function SEARCH({index, query, limit}) {
             case C.TYPES.INTEGER:
             case C.TYPES.DATE:
             case C.TYPES.DATETIME:
-                if (!_.isArray(value)) {
-                    return z;
+                if (_.isArray(value)) {
+                    [excFrom, from, to, excTo] = value;
+                    from = from in mm ? mm[from] : _[type2cast[type]](from);
+                    to = to in mm ? mm[to] : _[type2cast[type]](to);
+                } else {
+                    let lc = value.toLowerCase();
+                    from = lc in mm ? mm[lc] : _[type2cast[type]](value);
+                    to = from;
                 }
-                [excFrom, from, to, excTo] = value;
-                from = from in mm ? mm[from] : _[type2cast[type]](from);
-                to = to in mm ? mm[to] : _[type2cast[type]](to);
                 if (from === undefined || to === undefined) {
                     return z;
                 }

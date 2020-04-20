@@ -18,7 +18,7 @@ test('bitmap / CREATE / LIST / DROP', () => {
     expect(r4).toEqual([]);
 });
 
-test('bitmap / RENAME', () => {
+test('bitmap / RENAME / 1', () => {
     bitmap.execute('create a');
     let r1 = bitmap.execute('list');
     expect(r1).toEqual(['a']);
@@ -26,6 +26,25 @@ test('bitmap / RENAME', () => {
     expect(r2).toEqual(C.BITMAP_OK);
     let r4 = bitmap.execute('list');
     expect(r4).toEqual(['b']);
+    bitmap.execute('drop b');
+});
+
+test('bitmap / RENAME / 2', () => {
+    bitmap.execute('create a');
+    bitmap.execute('create b fields a foreignkey references a');
+    bitmap.execute('rename a a1');
+    expect(bitmap.dump('a1').links.b.references).toEqual('a1');
+    expect(bitmap.dump('b').fields.a.references).toEqual('a1');
+    bitmap.execute('drop a1');
+});
+
+test('bitmap / RENAME / 3', () => {
+    bitmap.execute('create a');
+    bitmap.execute('create b fields a foreignkey references a');
+    bitmap.execute('rename b b1');
+    expect(bitmap.dump('a').links.b1.references).toEqual('a');
+    expect(bitmap.dump('b1').fields.a.references).toEqual('a');
+    bitmap.execute('drop a');
 });
 
 test('bitmap / STAT', () => {
@@ -128,6 +147,11 @@ test('bitmap / SEARCH / 2', () => {
         '-@f1:([min] | [max])': [2, 3, 4],
         '@f1>1': [2, 3, 4, 5],
         '@f1 < 5': [1, 2, 3, 4],
+        '@f1 < 5 & @id > 2': [3, 4],
+        '@f1 < 5 & @id >= 2': [2, 3, 4],
+        '@f1 < 5 & @id < 4': [1, 2, 3],
+        '@id < 100': [1, 2, 3, 4, 5],
+        '@id > 0': [1, 2, 3, 4, 5],
         '@f1 < 5 & @f1 >= 2': [2, 3, 4],
         '@f1:1': [1],
         '@f1:Max': [5],
@@ -141,11 +165,68 @@ test('bitmap / SEARCH / 2', () => {
     bitmap.execute('drop index');
 });
 
-// const to = _.to;
-// const rand = _.rand;
-// const equal = _.equal;
+test('bitmap / SEARCH / 3', () => {
+    bitmap.execute('create index fields f1 fulltext prefixsearch f2 fulltext nostopwords');
+    let strings = [['foo a', 'bar'], ['zoomba', ''], ['', 'a world']];
+    let id = 1;
+    for (let [f1, f2] of strings) {
+        bitmap.execute(`add index ${id++} values f1 '${f1}' f2 '${f2}'`);
+    }
+    let cases = {
+        'foo': [1],
+        'worlds': [3],
+        'foo | worlds': [1, 3],
+        'foo & bar': [1],
+        '~foo | ~zoomba': [1, 2],
+        '~foo | ~zoo': [1, 2],
+        '(~zoo | ~fo)': [1, 2],
+        '(~foo & ~bar)': [1],
+        'a': [1],
+    };
+    let res;
+    for (let [query, result] of Object.entries(cases)) {
+        [, ...res] = bitmap.execute(`search index '${query}'`);
+        expect(res).toEqual(result);
+    }
+    bitmap.execute('drop index');
+});
 
+test('bitmap / DROP', () => {
+    bitmap.execute('create a');
+    bitmap.execute('create b fields a foreignkey references a');
+    bitmap.execute('create c fields b foreignkey references b');
+    bitmap.execute('drop a');
+    expect(bitmap.execute('list')).toEqual([]);
+});
 
+test('bitmap / SEARCH / 4', () => {
+    bitmap.execute('create parent');
+    bitmap.execute('add parent 1');
+    bitmap.execute('add parent 2');
+    bitmap.execute('create child fields parent_id foreignkey references parent "fulltext" fulltext');
+    bitmap.execute('add child 1 values parent_id 1 "fulltext" \'foo bar\'');
+    bitmap.execute('add child 2 values parent_id 1 "fulltext" \'hello world\'');
+    bitmap.execute('add child 3 values parent_id 2 "fulltext" \'hi mi shi\'');
+    let cases = {
+        '*': ['child', [1, 2, 3]],
+        '@parent_id:1': ['child', [1, 2]],
+        '@parent_id:2': ['child', [3]],
+        '-@parent_id:2': ['child', [1, 2]],
+        '-@id:2': ['parent', [1]],
+        '@@child:@parent_id:1': ['parent', [1]],
+        '@@child:(@parent_id:1)': ['parent', [1]],
+        '(@@child:@parent_id:1)': ['parent', [1]],
+        '(@@child:(@parent_id:1))': ['parent', [1]],
+        '@@child:(hello world)': ['parent', [1]],
+        '@@child:(hello | hi)': ['parent', [1, 2]],
+    };
+    for (let [query, [index, result]] of Object.entries(cases)) {
+        let [, ...res] = bitmap.execute(`search ${index} '${query}'`);
+        expect(res).toEqual(result);
+    }
+    bitmap.execute('drop child');
+    bitmap.execute('drop parent');
+});
 
 // test('bitmap - ADD', async () => {
 //     let res, err;

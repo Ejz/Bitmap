@@ -5,12 +5,22 @@ const RoaringBitmap = require('./RoaringBitmap');
 const cheerio = require('cheerio');
 
 let rules = {
+    FK: [
+        /^@@([a-zA-Z_][a-zA-Z0-9_]*)\s*/,
+        m => m[1].toLowerCase(),
+    ],
     IDENT: [
         /^@([a-zA-Z_][a-zA-Z0-9_]*)\s*/,
         m => m[1].toLowerCase(),
     ],
+    // : - colon
+    // & - AND
+    // | - OR
+    // () - para
+    // - - negation
+    // ~ - prefix
     SPECIAL: [
-        /^([:&\|\)\(-])\s*/,
+        /^([:&\|\)\(~-])\s*/,
         m => m[1],
     ],
     ALL: [
@@ -18,8 +28,28 @@ let rules = {
         m => true,
     ],
     VALUE: [
-        /^([^\s<>=@\]\[,:&\|\)\(-]+)\s*/i,
+        /^([a-zA-Z_0-9]+)\s*/i,
         m => m[1],
+    ],
+    ENTER_QUOTE_MODE: [
+        /^"/,
+        function (m) {
+            this.mode = 'QUOTE';
+            return '';
+        },
+    ],
+    EXIT_QUOTE_MODE: [
+        /^"\s*/,
+        function (m) {
+            this.mode = undefined;
+            return '';
+        },
+        'QUOTE',
+    ],
+    QUOTED_VALUE: [
+        /^([^"\\]+|\\"|\\\\|\\)/,
+        m => m[1],
+        'QUOTE',
     ],
     RANGE1: [
         /^\[([^\]]*)\]\s*/i,
@@ -37,51 +67,68 @@ class QueryParser {
     }
     tokenize(string) {
         let tokens = this.tokenizer.tokenize(string);
-        let extoken;
-        tokens = tokens.map(token => {
-            if (token.type == 'RANGE1') {
-                let excFrom = false, from, to, excTo = false;
-                let parts = token.value.split(',').slice(0, 2).map(v => v.trim());
-                if (parts.length == 2) {
-                    [from, to] = parts;
-                    if (from.length && from[0] == '(') {
-                        excFrom = true;
-                        from = from.replace(/^\(\s*/, '');
+        let extoken, value;
+        tokens = tokens.filter(token => {
+            switch (token.type) {
+                case 'ENTER_QUOTE_MODE':
+                    value = [];
+                    return false;
+                case 'QUOTED_VALUE':
+                    value.push(token.value);
+                    return false;
+                case 'RANGE1':
+                    let excFrom = false, from, to, excTo = false;
+                    let parts = token.value.split(',').slice(0, 2).map(v => v.trim());
+                    if (parts.length == 2) {
+                        [from, to] = parts;
+                        if (from.length && from[0] == '(') {
+                            excFrom = true;
+                            from = from.replace(/^\(\s*/, '');
+                        }
+                        if (to.length && to[to.length - 1] == ')') {
+                            excTo = true;
+                            to = to.replace(/\s*\)$/, '');
+                        }
+                        from = ['', 'min'].includes(from.toLowerCase()) ? 'min' : from;
+                        to = ['', 'max'].includes(to.toLowerCase()) ? 'max' : to;
+                    } else {
+                        [from] = parts;
+                        if (from == '') {
+                            throw new C.QueryParserError(C.QUERY_PARSER_ERROR_INVALID_INPUT);
+                        }
+                        let _ = from.toLowerCase();
+                        from = ['min', 'max'].includes(_) ? _ : from;
+                        to = from;
                     }
-                    if (to.length && to[to.length - 1] == ')') {
-                        excTo = true;
-                        to = to.replace(/\s*\)$/, '');
+                    token.value = [excFrom, from, to, excTo];
+                    token.type = 'VALUE';
+                    return true;
+                case 'EXIT_QUOTE_MODE':
+                    token.type = 'VALUE';
+                    token.value = value.join('').replace(/\\("|\\)/g, '$1');
+                case 'VALUE':
+                    if (extoken && extoken.type == 'SPECIAL' && extoken.value == '~') {
+                        extoken.type = 'VALUE';
+                        extoken.value = {value: token.value, prefixSearch: true};
+                        return false;
                     }
-                    from = ['', 'min'].includes(from.toLowerCase()) ? 'min' : from;
-                    to = ['', 'max'].includes(to.toLowerCase()) ? 'max' : to;
-                } else {
-                    [from] = parts;
-                    if (from == '') {
-                        throw new C.QueryParserError(C.QUERY_PARSER_ERROR_INVALID_INPUT);
+                    if (extoken && extoken.type == 'RANGE2') {
+                        let v = extoken.value;
+                        let less = ~v.indexOf('<');
+                        token.value = [
+                            v == '>',
+                            less ? 'min' : token.value,
+                            less ? token.value : 'max',
+                            v == '<',
+                        ];
+                        extoken.type = 'SPECIAL';
+                        extoken.value = ':';
+                        return true;
                     }
-                    let _ = from.toLowerCase();
-                    from = ['min', 'max'].includes(_) ? _ : from;
-                    to = from;
-                }
-                token.value = [excFrom, from, to, excTo];
-                token.type = 'VALUE';
-                return token;
+                default:
+                    extoken = token;
+                    return true;
             }
-            if (token.type == 'VALUE' && extoken && extoken.type == 'RANGE2') {
-                let v = extoken.value;
-                let less = ~v.indexOf('<');
-                token.value = [
-                    v == '>',
-                    less ? 'min' : token.value,
-                    less ? token.value : 'max',
-                    v == '<',
-                ];
-                extoken.type = 'SPECIAL';
-                extoken.value = ':';
-                return token;
-            }
-            extoken = token;
-            return token;
         });
         return tokens;
     }
@@ -95,6 +142,9 @@ class QueryParser {
             }
             if (type == 'IDENT') {
                 return '<ident value="' + value + '"></ident>';
+            }
+            if (type == 'FK') {
+                return '<fk value="' + value + '"></fk>';
             }
             if (type == 'ALL') {
                 return '<term id="*"></term>';
@@ -125,11 +175,12 @@ class QueryParser {
             if (!para || para.name != 'para') {
                 return;
             }
+            ident = $(ident);
             $(para).find('value').each((idx, value) => {
-                let _ = '<ident value="' + $(ident).attr('value') + '"></ident><colon></colon>';
+                let _ = '<ident value="' + ident.attr('value') + '"></ident><colon></colon>';
                 $(value).wrap('<para></para>').before(_);
             });
-            $(ident).remove();
+            ident.remove();
             $(colon).remove();
         });
         $('ident').each((idx, ident) => {
@@ -141,17 +192,48 @@ class QueryParser {
             if (!value || value.name != 'value') {
                 return;
             }
+            ident = $(ident);
+            colon = $(colon);
+            value = $(value);
             terms.push({
-                value: values[parseInt($(value).attr('id'))],
-                field: $(ident).attr('value'),
+                value: values[parseInt(value.attr('id'))],
+                field: ident.attr('value'),
             });
-            $(ident).before('<term id="' + (terms.length - 1) + '"></term>');
-            $(ident).remove();
-            $(colon).remove();
-            $(value).remove();
+            ident.before('<term id="' + (terms.length - 1) + '"></term>');
+            ident.remove();
+            colon.remove();
+            value.remove();
+        });
+        $('value').each((idx, value) => {
+            value = $(value);
+            terms.push({
+                value: values[parseInt(value.attr('id'))],
+                field: undefined,
+            });
+            value.before('<term id="' + (terms.length - 1) + '"></term>');
+            value.remove();
         });
         $('term,para').next('term,para').each((idx, tag) => {
             $(tag).before('<and></and>');
+        });
+        $('fk').each((idx, fk) => {
+            let colon = fk.next;
+            if (!colon || colon.name != 'colon') {
+                return;
+            }
+            let smth = colon.next;
+            if (!smth || !['term', 'para'].includes(smth.name)) {
+                return;
+            }
+            fk = $(fk);
+            terms.push({
+                value: this.infix2postfix(this.html2infix($.html(smth))),
+                fk: fk.attr('value'),
+            });
+            fk.before('<term id="' + (terms.length - 1) + '"></term>');
+            fk.remove();
+            $(colon).remove();
+            $(smth).remove();
         });
         if ($('value,ident,colon').length) {
             throw new C.QueryParserError(C.QUERY_PARSER_ERROR_INVALID_INPUT);
@@ -159,17 +241,16 @@ class QueryParser {
         html = $.html();
         html = html.replace('<html><head></head><body>', '');
         html = html.replace('</body></html>', '');
+        return {infix: this.html2infix(html), terms};
+    }
+    html2infix(html) {
         html = html.replace(/<term id="(\S+)"><\/term>/g, ' $1 ');
         html = html.replace(/<and><\/and>/g, ' & ');
         html = html.replace(/<not><\/not>/g, ' - ');
         html = html.replace(/<or><\/or>/g, ' | ');
         html = html.replace(/<(\/?)para>/g, (m, p1) => p1 ? ')' : '(');
-        return {infix: html.replace(/\s+/g, ' ').trim(), terms};
-        // return htmlparser2.parseDOM(html);
-        // .Parser();
-        // parser.write();
-        // parser.end('');
-        // return parser();
+        html = html.replace(/\s+/g, ' ').trim();
+        return html;
     }
     infix2postfix(infix) {
         let output = [];

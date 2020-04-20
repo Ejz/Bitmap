@@ -8,8 +8,10 @@ let KW = [
     'PING', 'CREATE', 'DROP', 'LIST', 'ADD', 'STAT', 'RENAME',
     'SEARCH',
     'FIELDS', 'VALUES',
+    'NOSTOPWORDS', 'PREFIXSEARCH',
     'MIN', 'MAX',
     'SEPARATOR',
+    'REFERENCES',
     ...TYPES,
 ];
 
@@ -66,25 +68,26 @@ class CommandParser {
     tokenize(string) {
         let tokens = this.tokenizer.tokenize(string);
         let value;
-        tokens = tokens.map(token => {
-            if (token.type == 'EXIT_QUOTE_MODE') {
-                return {type: 'VALUE', value: value.join('').replace(/\\('|\\)/g, '$1')};
+        tokens = tokens.filter(token => {
+            switch (token.type) {
+                case 'EXIT_QUOTE_MODE':
+                    token.type = 'VALUE';
+                    token.value = value.join('').replace(/\\('|\\)/g, '$1');
+                    return true;
+                case 'ENTER_QUOTE_MODE':
+                    value = [];
+                    return false;
+                case 'VALUE':
+                    value.push(token.value);
+                    return false;
+                case 'INTEGER':
+                    token.type = 'VALUE';
+                    token.value = String(token.value);
+                    return true;
+                default:
+                    return true;
             }
-            if (token.type == 'ENTER_QUOTE_MODE') {
-                value = [];
-                token.type = '';
-                return token;
-            }
-            if (token.type == 'VALUE') {
-                value.push(token.value);
-                token.type = '';
-                return token;
-            }
-            if (token.type == 'INTEGER') {
-                return {value: String(token.value), type: 'VALUE'};
-            }
-            return token;
-        }).filter(t => t.type);
+        });
         return tokens;
     }
     parse(tokens) {
@@ -165,6 +168,19 @@ class CommandParser {
                         if (this.tryKw('SEPARATOR')) {
                             field.separator = this.expectValue();
                         }
+                    } else if (field.type == C.TYPES.FULLTEXT) {
+                        field.noStopwords = false;
+                        field.prefixSearch = false;
+                        do {
+                            let kw = this.tryKw('NOSTOPWORDS', 'PREFIXSEARCH');
+                            if (!kw) {
+                                break;
+                            }
+                            field[kw == 'NOSTOPWORDS' ? 'noStopwords' : 'prefixSearch'] = true;
+                        } while (true);
+                    } else if (field.type == C.TYPES.FOREIGNKEY) {
+                        this.expectKw('REFERENCES');
+                        field.references = this.expectIdent();
                     }
                     this.command.fields[ident] = field;
                 }
@@ -230,6 +246,13 @@ class CommandParser {
         let integer = this.expectInteger();
         if (integer < 1) {
             throw new C.CommandParserError(C.COMMAND_PARSER_ERROR_EXPECT_POSITIVE_INTEGER);
+        }
+        return integer;
+    }
+    expectZeroPositiveInteger() {
+        let integer = this.expectInteger();
+        if (integer < 0) {
+            throw new C.CommandParserError(C.COMMAND_PARSER_ERROR_EXPECT_ZERO_POSITIVE_INTEGER);
         }
         return integer;
     }

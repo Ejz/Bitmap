@@ -105,6 +105,11 @@ test('CommandParser / parse / 4', () => {
     expect(r2.fields.f.separator).toEqual(',');
 });
 
+test('CommandParser / parse / 5', () => {
+    let r1 = parse('create a fields f fulltext prefixsearch');
+    expect(r1.fields.f.prefixSearch).toEqual(true);
+});
+
 test('CommandParser / parse / errors', () => {
     let commands = [
         'foo',

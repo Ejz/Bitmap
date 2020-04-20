@@ -1,4 +1,6 @@
+const snowball = require('node-snowball');
 const sprintf = require('util').format;
+const stopwords = require('./stopwords');
 
 function isString(f) {
     return typeof(f) == 'string';
@@ -64,6 +66,37 @@ function toBoolean(v) {
     return ['true', '1'].includes(String(v).toLowerCase());
 }
 
+function wordSplit(sentence) {
+    let words = sentence.trim().toLowerCase().split(/\W+/);
+    words = words.filter(word => word.length);
+    words = words.filter((v, i, a) => a.lastIndexOf(v) == i);
+    return words;
+}
+
+function stem(sentence, noStopwords) {
+    let words = isArray(sentence) ? sentence : wordSplit(sentence);
+    if (noStopwords) {
+        words = words.filter(word => !stopwords[word]);
+    }
+    words = words.map(word => snowball.stemword(word));
+    words = words.filter((v, i, a) => a.lastIndexOf(v) == i);
+    return words;
+}
+
+function triplet(word) {
+    let triplets = [];
+    if (word.length > 0) {
+        triplets.push(word[0]);
+    }
+    if (word.length > 1) {
+        triplets.push(word[0] + word[1]);
+    }
+    for (let i = 0; i < word.length - 2; i++) {
+        triplets.push(word.substring(i, i + 3));
+    }
+    return triplets;
+}
+
 module.exports = {
     sprintf,
     isString,
@@ -79,6 +112,9 @@ module.exports = {
     toDateInteger,
     toInteger,
     toBoolean,
+    wordSplit,
+    stem,
+    triplet,
 };
 
 /*
@@ -90,7 +126,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const crypto = require('crypto');
-const snowball = require('node-snowball');
+
 const C = require('./constants');
 
 const CR = '\r';
@@ -98,31 +134,7 @@ const LF = '\n';
 const CRLF = CR + LF;
 
 
-const stopwords = require('./stopwords');
 
-function stem(sentence, noStopwords) {
-    sentence = sentence.trim().toLowerCase().split(/\W+/);
-    sentence = sentence.filter(word => word.length);
-    if (noStopwords) {
-        sentence = sentence.filter(word => !stopwords[word]);
-    }
-    sentence = sentence.map(word => snowball.stemword(word));
-    return sentence;
-}
-
-function triplets(word) {
-    let triplets = [];
-    if (word.length > 0) {
-        triplets.push(word[0]);
-    }
-    if (word.length > 1) {
-        triplets.push(word[0] + word[1]);
-    }
-    for (let i = 0; i < word.length - 2; i++) {
-        triplets.push(word.substring(i, i + 3));
-    }
-    return triplets;
-}
 
 function md5(string) {
     return crypto.createHash('md5').update(string).digest('hex');

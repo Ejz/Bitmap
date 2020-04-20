@@ -22,6 +22,28 @@ test('toDateTimeInteger', () => {
     expect(_.toDateTimeInteger('')).toEqual(undefined);
 });
 
+test('wordSplit', () => {
+    expect(_.wordSplit('Hello Worlds!')).toEqual(['hello', 'worlds']);
+    expect(_.wordSplit('a b c b')).toEqual(['a', 'c', 'b']);
+});
+
+test('stem', () => {
+    expect(_.stem('Hello Worlds', false)).toEqual(['hello', 'world']);
+    expect(_.stem(' Girls ', false)).toEqual(['girl']);
+    expect(_.stem('  ', false)).toEqual([]);
+    expect(_.stem(' - ', false)).toEqual([]);
+    expect(_.stem('i\'m ok', false)).toEqual(['i', 'm', 'ok']);
+    //
+    expect(_.stem('Bob took my hand!', true)).toEqual(['bob', 'hand']);
+    expect(_.stem('i\'m ok', true)).toEqual([]);
+    expect(_.stem('i\'m ok, Brothers', true)).toEqual(['brother']);
+});
+
+test('triplet', () => {
+    expect(_.triplet('hello')).toStrictEqual(['h', 'he', 'hel', 'ell', 'llo']);
+    expect(_.triplet('hii')).toStrictEqual(['h', 'hi', 'hii']);
+});
+
 // test('toDateTimeInteger', () => {
 //     expect(_.toDateTimeInteger('foo')).toEqual(undefined);
 // });
@@ -51,16 +73,7 @@ test('toDateTimeInteger', () => {
 //     expect(res).toBe(4);
 // });
 
-// test('stem', () => {
-//     expect(_.stem('Hello Worlds', false)).toStrictEqual(['hello', 'world']);
-//     expect(_.stem(' Girls ', false)).toStrictEqual(['girl']);
-//     expect(_.stem('  ', false)).toStrictEqual([]);
-//     expect(_.stem(' - ', false)).toStrictEqual([]);
-//     expect(_.stem('i\'m ok', false)).toStrictEqual(['i', 'm', 'ok']);
-//     //
-//     expect(_.stem('Bob took my hand!', true)).toStrictEqual(['bob', 'hand']);
-//     expect(_.stem('i\'m ok', true)).toStrictEqual([]);
-// });
+
 
 // test('castToArray', () => {
 //     expect(_.castToArray(' Foo Bar ')).toStrictEqual(['Foo', 'Bar']);
@@ -114,7 +127,4 @@ test('toDateTimeInteger', () => {
 //     expect(res).toStrictEqual(['a', '', 'b', '']);
 // });
 
-// test('triplets', () => {
-//     expect(_.triplets('hello')).toStrictEqual(['h', 'he', 'hel', 'ell', 'llo']);
-//     expect(_.triplets('hii')).toStrictEqual(['h', 'hi', 'hii']);
-// });
+

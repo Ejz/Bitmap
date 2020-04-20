@@ -52,6 +52,21 @@ test('QueryParser / tokenize / 4', () => {
     expect(r1[0].type).toEqual('IDENT');
 });
 
+test('QueryParser / tokenize / 5', () => {
+    let r1 = tokenize('"" "a\\"" "\\b\\\\"');
+    expect(r1[0].value).toEqual('');
+    expect(r1[1].value).toEqual('a"');
+    expect(r1[2].value).toEqual('\\b\\');
+});
+
+test('QueryParser / tokenize / 6', () => {
+    let r1 = tokenize('~"goo"');
+    expect(r1[0]).toEqual({type: 'VALUE', value: {value: 'goo', prefixSearch: true}});
+    //
+    let r2 = tokenize('~goo_1');
+    expect(r2[0]).toEqual({type: 'VALUE', value: {value: 'goo_1', prefixSearch: true}});
+});
+
 test('QueryParser / tokenize / errors', () => {
     let queries = [
         '@&',
@@ -83,6 +98,12 @@ test('QueryParser / tokens2terms / 1', () => {
     //
     let r7 = tokens2terms('@f:1 *');
     expect(r7.infix).toEqual('1 & *');
+});
+
+test('QueryParser / tokens2terms / 2', () => {
+    let r1 = tokens2terms('@@f:(foo & bar) & moo');
+    expect(r1.infix).toEqual('4 & 3');
+    expect(r1.terms[4].fk).toEqual('f');
 });
 
 test('QueryParser / infix2postfix', () => {

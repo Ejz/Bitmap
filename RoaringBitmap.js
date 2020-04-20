@@ -27,24 +27,24 @@ RoaringBitmap.andMany = (bitmaps) => {
     return bitmap;
 };
 
-// RoaringBitmap.orMany = (bitmaps) => {
-//     if (!bitmaps.length) {
-//         return new RoaringBitmap();
-//     }
-//     if (bitmaps.length == 1) {
-//         return bitmaps[0];
-//     }
-//     let index, bitmap;
-//     index = bitmaps.findIndex(b => !b.persist);
-//     index = ~index ? index : 0;
-//     bitmap = bitmaps[index];
-//     bitmaps.splice(index, 1);
-//     bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
-//     for (let b of bitmaps) {
-//         bitmap = bitmap.orInPlace(b);
-//     }
-//     return bitmap;
-// };
+RoaringBitmap.orMany = (bitmaps) => {
+    if (!bitmaps.length) {
+        return new RoaringBitmap();
+    }
+    if (bitmaps.length == 1) {
+        return bitmaps[0];
+    }
+    let index, bitmap;
+    index = bitmaps.findIndex(b => !b.persist);
+    index = ~index ? index : 0;
+    bitmap = bitmaps[index];
+    bitmaps.splice(index, 1);
+    bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
+    for (let b of bitmaps) {
+        bitmap = bitmap.orInPlace(b);
+    }
+    return bitmap;
+};
 
 let andNot = RoaringBitmap.andNot;
 
@@ -53,6 +53,17 @@ RoaringBitmap.andNot = (bitmap, not) => {
         return andNot(bitmap, not);
     }
     return bitmap.andNotInPlace(not);
+};
+
+RoaringBitmap.onlyRange = (bitmap, from, to) => {
+    bitmap = bitmap.persist ? new RoaringBitmap(bitmap) : bitmap;
+    let min = bitmap.minimum();
+    let max = bitmap.maximum();
+    from = from < min ? min : from;
+    to = to > max ? max : to;
+    bitmap.removeRange(min, from);
+    bitmap.removeRange(to + 1, max + 1);
+    return bitmap;
 };
 
 module.exports = RoaringBitmap;

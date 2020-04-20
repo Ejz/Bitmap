@@ -28,3 +28,4 @@ An open sourced high-speed index. Based on [Roaring Bitmaps](https://roaringbitm
 * `@c:true` &ndash; search `true` for `c` (it's `BOOLEAN`)<br><br>
 * `@c:1` &ndash; also valid syntax for `true`<br><br>
 * `@d:[2010-01-01,2011-01-01)]` &ndash; search all dates for 2010<br><br>
+* `@@e:(foo bar)` &ndash; refer to another index (linked via `FOREIGNKEY` field)<br><br>

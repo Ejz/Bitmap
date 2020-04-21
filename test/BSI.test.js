@@ -2,7 +2,7 @@ const BSI = require('../BSI');
 const _ = require('../helpers');
 const C = require('../constants');
 
-test('constructor', () => {
+test('BSI / constructor', () => {
     let cases = [
         [0, 0, 1],
         [-1, 0, 1],
@@ -17,7 +17,7 @@ test('constructor', () => {
     }
 });
 
-test('add / getBitmap - 0-2', () => {
+test('BSI / add / getBitmap - 0-2', () => {
     let bsi = new BSI(0, 1);
     bsi.add(1, 0);
     bsi.add(2, 1);
@@ -31,7 +31,7 @@ test('add / getBitmap - 0-2', () => {
     }
 });
 
-test('add / getBitmap - 0-7', () => {
+test('BSI / add / getBitmap - 0-7', () => {
     let bsi = new BSI(0, 7);
     bsi.add(1, 0);
     bsi.add(2, 1);
@@ -57,7 +57,7 @@ test('add / getBitmap - 0-7', () => {
     }
 });
 
-test('add / getBitmap - multi', () => {
+test('BSI / add / getBitmap - multi', () => {
     let time;
     let limit = 1E5;
     let min = 1;

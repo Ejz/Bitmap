@@ -5,8 +5,7 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-        "test": "jest",
-        "start": "./bitmap_server.js"
+        "test": "jest"
     },
     "keywords": [],
     "author": "",

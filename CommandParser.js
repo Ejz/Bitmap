@@ -7,11 +7,15 @@ let TYPES = Object.entries(C.TYPES).map(([k, v]) => v);
 let KW = [
     'PING', 'CREATE', 'DROP', 'LIST', 'ADD', 'STAT', 'RENAME',
     'SEARCH',
+    'SHOWCREATE', 'SLOWQUERYLOG',
     'FIELDS', 'VALUES',
     'NOSTOPWORDS', 'PREFIXSEARCH',
     'MIN', 'MAX',
     'SEPARATOR',
     'REFERENCES',
+    'SORTBY', 'LIMIT',
+    'ASC', 'DESC',
+    'WITHFOREIGNKEYS',
     ...TYPES,
 ];
 
@@ -100,7 +104,12 @@ class CommandParser {
                 this.expectEnd();
                 return this.command;
             case 'STAT':
+            case 'SLOWQUERYLOG':
                 this.command.index = this.tryIdent();
+                this.expectEnd();
+                return this.command;
+            case 'SHOWCREATE':
+                this.command.index = this.expectIdent();
                 this.expectEnd();
                 return this.command;
             case 'ADD':
@@ -153,13 +162,18 @@ class CommandParser {
                     if (C.IS_INTEGER(field.type)) {
                         field.min = C.INTEGER_DEFAULT_MIN;
                         field.max = C.INTEGER_DEFAULT_MAX;
-                        do {
-                            let kw = this.tryKw('MIN', 'MAX');
-                            if (!kw) {
-                                break;
+                        w: while (true) {
+                            switch (this.tryKw('MIN', 'MAX')) {
+                                case 'MIN':
+                                    field.min = this.integer2expect[field.type]();
+                                    break;
+                                case 'MAX':
+                                    field.max = this.integer2expect[field.type]();
+                                    break;
+                                default:
+                                    break w;
                             }
-                            field[kw.toLowerCase()] = this.integer2expect[field.type]();
-                        } while (true);
+                        }
                         if (field.min > field.max) {
                             throw new C.CommandParserError(C.COMMAND_PARSER_ERROR_MIN_MAX);
                         }
@@ -169,15 +183,18 @@ class CommandParser {
                             field.separator = this.expectValue();
                         }
                     } else if (field.type == C.TYPES.FULLTEXT) {
-                        field.noStopwords = false;
-                        field.prefixSearch = false;
-                        do {
-                            let kw = this.tryKw('NOSTOPWORDS', 'PREFIXSEARCH');
-                            if (!kw) {
-                                break;
+                        w: while (true) {
+                            switch (this.tryKw('NOSTOPWORDS', 'PREFIXSEARCH')) {
+                                case 'NOSTOPWORDS':
+                                    field.noStopwords = true;
+                                    break;
+                                case 'PREFIXSEARCH':
+                                    field.prefixSearch = true;
+                                    break;
+                                default:
+                                    break w;
                             }
-                            field[kw == 'NOSTOPWORDS' ? 'noStopwords' : 'prefixSearch'] = true;
-                        } while (true);
+                        }
                     } else if (field.type == C.TYPES.FOREIGNKEY) {
                         this.expectKw('REFERENCES');
                         field.references = this.expectIdent();
@@ -198,8 +215,28 @@ class CommandParser {
                 this.command.index = this.expectIdent();
                 this.command.query = this.expectValue();
                 this.command.limit = 1000;
-                if (this.tryKw('LIMIT')) {
-                    this.command.limit = this.expectZeroPositiveInteger();
+                w: while (true) {
+                    switch (this.tryKw('SORTBY', 'LIMIT', 'WITHFOREIGNKEYS')) {
+                        case 'SORTBY':
+                            this.command.sortby = this.expectIdent();
+                            this.command.desc = this.tryKw('ASC', 'DESC') == 'DESC';
+                            break;
+                        case 'LIMIT':
+                            this.command.limit = this.expectZeroPositiveInteger();
+                            break;
+                        case 'WITHFOREIGNKEYS':
+                            this.command.foreignKeys = [];
+                            while (true) {
+                                let ident = this.tryIdent();
+                                if (!ident) {
+                                    break;
+                                }
+                                this.command.foreignKeys.push(ident);
+                            }
+                            break;
+                        default:
+                            break w;
+                    }
                 }
                 this.expectEnd();
                 return this.command;

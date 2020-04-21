@@ -32,7 +32,20 @@ function execute(query) {
     if (!module.exports[action]) {
         throw new C.BitmapError(C.BITMAP_ERROR_UNKNOWN_COMMAND);
     }
-    return module.exports[action](command);
+    if (action != 'SEARCH') {
+        return module.exports[action](command);
+    }
+    let _1 = Number(new Date());
+    let res = module.exports[action](command);
+    _1 = Number(new Date()) - _1;
+    if (_1 > 100) {
+        storage[command.index].slowQueryLog.push({
+            timestamp: Number(new Date()),
+            taken: _1,
+            query: command.query,
+        });
+    }
+    return res;
 }
 
 function PING() {
@@ -66,7 +79,13 @@ function CREATE({index, fields}) {
             }
         }
     }
-    storage[index] = {fields, bitmaps: [], newBitmap, links: Object.create(null)};
+    storage[index] = {
+        fields,
+        bitmaps: [],
+        newBitmap,
+        links: Object.create(null),
+        slowQueryLog: [],
+    };
     storage[index].ids = storage[index].newBitmap();
     let nb = storage[index].newBitmap.bind(storage[index]);
     Object.entries(storage[index].fields).forEach(([, f]) => {
@@ -230,11 +249,21 @@ function ADD({index, id, values}) {
     return C.BITMAP_OK;
 }
 
-function SEARCH({index, query, limit, terms, parent}) {
+function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
     }
     let {fields, ids} = storage[index];
+    if (sortby && (!fields[sortby] || !fields[sortby].bsi)) {
+        let e = fields[sortby] ? C.BITMAP_ERROR_FIELD_NOT_SORTABLE : C.BITMAP_ERROR_FIELD_NOT_EXISTS;
+        throw new C.BitmapError(e);
+    }
+    for (let fk of (foreignKeys || [])) {
+        if (!fields[fk] || !fields[fk].id2fk) {
+            let e = fields[fk] ? C.BITMAP_ERROR_FIELD_NOT_FOREIGN_KEY : C.BITMAP_ERROR_FIELD_NOT_EXISTS;
+            throw new C.BitmapError(e);
+        }
+    }
     let queryParser = new QueryParser();
     if (terms === undefined) {
         let tokens = queryParser.tokenize(query);
@@ -340,15 +369,90 @@ function SEARCH({index, query, limit, terms, parent}) {
         }
         return ret;
     }
-    let ret = [bitmap.size];
-    for (let id of (limit > 0 ? bitmap : [])) {
+    let iterator, ret = [bitmap.size];
+    if (sortby) {
+        iterator = fields[sortby].bsi.sort(bitmap, !desc);
+    } else {
+        iterator = bitmap.iterator();
+    }
+    for (let id of (limit > 0 ? iterator : [])) {
         ret.push(id);
         limit--;
         if (!limit) {
             break;
         }
     }
+    if (foreignKeys) {
+        foreignKeys = _.unique(foreignKeys);
+        foreignKeys = foreignKeys.map(fk => [fk, fields[fk].id2fk]);
+        ret = ret.map((id, x) => {
+            if (x == 0) {
+                return id;
+            }
+            let r = {id};
+            foreignKeys.forEach(fk => r[fk[0]] = fk[1][id]);
+            return r;
+        });
+    }
+    if (!bitmap.persist) {
+        bitmap.clear();
+    }
     return ret;
+}
+
+function SHOWCREATE({index}) {
+    if (!storage[index]) {
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
+    }
+    let fields = Object.entries(storage[index].fields).map(([name, field]) => {
+        let ret = ['"' + name + '"', field.type];
+        switch (field.type) {
+            case C.TYPES.ARRAY:
+                ret.push('SEPARATOR', '\'' + field.separator + '\'');
+                break;
+            case C.TYPES.INTEGER:
+                ret.push('MIN', field.min, 'MAX', field.max);
+                break;
+            case C.TYPES.DATE:
+                let cast = d => new Date(d * 864E5).toISOString().replace(/T.*$/, '');
+                ret.push('MIN', cast(field.min), 'MAX', cast(field.max));
+                break;
+            case C.TYPES.DATETIME:
+                let cast = d => new Date(d * 1E3).toISOString().replace(/\..*$/, '');
+                ret.push('MIN', cast(field.min), 'MAX', cast(field.max));
+                break;
+            case C.TYPES.FULLTEXT:
+                field.noStopwords && ret.push('NOSTOPWORDS');
+                field.prefixSearch && ret.push('PREFIXSEARCH');
+                break;
+            case C.TYPES.FOREIGNKEY:
+                ret.push('REFERENCES', '"' + ret.references + '"');
+                break;
+        }
+        return ret.join(' ');
+    });
+    let create = [
+        'CREATE',
+        '"' + index + '"',
+    ];
+    if (fields.length) {
+        create.push('FIELDS');
+        create.push(fields.join(' '));
+    }
+    return create.join(' ');
+}
+
+function SLOWQUERYLOG({index}) {
+    if (!index) {
+        return Object.keys(storage).reduce((acc, index) => {
+            acc[index] = SLOWQUERYLOG({index});
+            return acc;
+        }, Object.create(null));
+    }
+    if (!storage[index]) {
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
+    }
+    return storage[index].slowQueryLog;
 }
 
 function searchInTriplets(word, triplets) {
@@ -372,5 +476,7 @@ module.exports = {
     STAT,
     ADD,
     SEARCH,
+    SHOWCREATE,
+    SLOWQUERYLOG,
     dump,
 };

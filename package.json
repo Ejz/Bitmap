@@ -6,7 +6,8 @@
     "main": "index.js",
     "scripts": {
         "test": "jest",
-        "start": "node -e 'require(\"./server\")().listen(61000)'"
+        "server": "node -e 'require(\"./server\")().listen(...process.argv.slice(1))'",
+        "client": "node -e 'require(\"./client\")().connect(...process.argv.slice(1))'"
     },
     "keywords": [],
     "author": "",

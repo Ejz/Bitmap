@@ -4,7 +4,7 @@ const C = require('./constants');
 const _ = require('./helpers');
 
 function createServer(auth) {
-    return http.createServer((req, res) => {
+    let server = http.createServer((req, res) => {
         res.setHeader('content-type', C.SERVER_CONTENT_TYPE);
         if (req.method != 'POST') {
             return res.end(JSON.stringify({error: C.SERVER_ERROR_INVALID_METHOD}));
@@ -12,7 +12,7 @@ function createServer(auth) {
         if (req.headers['content-type'] != C.SERVER_CONTENT_TYPE) {
             return res.end(JSON.stringify({error: C.SERVER_ERROR_INVALID_CONTENT_TYPE}));
         }
-        if (auth !== undefined && req.headers['authorization'] != auth) {
+        if (auth && req.headers['authorization'] != auth) {
             return res.end(JSON.stringify({error: C.SERVER_ERROR_INVALID_AUTHORIZATION}));
         }
         let body = [];
@@ -49,6 +49,11 @@ function createServer(auth) {
             res.end(JSON.stringify(results));
         });
     });
+    let listen = server.listen.bind(server);
+    server.listen = (port = C.SERVER_PORT, host = C.SERVER_HOST) => {
+        return listen(port, host);
+    };
+    return server;
 }
 
 module.exports = createServer;

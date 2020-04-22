@@ -2,7 +2,7 @@
 
 An open sourced high-speed index. Based on [Roaring Bitmaps](https://roaringbitmap.org/) technology.
 
-## Try it
+## Quick start
 
 Clone and start:
 

@@ -16,6 +16,7 @@ let KW = [
     'SORTBY', 'LIMIT',
     'ASC', 'DESC',
     'WITHFOREIGNKEYS',
+    'UNDEFINED',
     ...TYPES,
 ];
 
@@ -88,6 +89,12 @@ class CommandParser {
                     token.type = 'VALUE';
                     token.value = String(token.value);
                     return true;
+                case 'KW':
+                    if (token.value == 'UNDEFINED') {
+                        token.type = 'VALUE';
+                        token.value = undefined;
+                    }
+                    return true;
                 default:
                     return true;
             }
@@ -103,9 +110,16 @@ class CommandParser {
             case 'LIST':
                 this.expectEnd();
                 return this.command;
-            case 'STAT':
             case 'SLOWQUERYLOG':
                 this.command.index = this.tryIdent();
+                this.expectEnd();
+                return this.command;
+            case 'STAT':
+                this.command.index = this.tryIdent();
+                this.command.field = this.tryIdent();
+                if (this.command.field && this.tryKw('LIMIT')) {
+                    this.command.limit = this.expectPositiveInteger();
+                }
                 this.expectEnd();
                 return this.command;
             case 'SHOWCREATE':
@@ -131,7 +145,10 @@ class CommandParser {
                     if (ident == C.BITMAP_ID) {
                         throw new C.CommandParserError(C.COMMAND_PARSER_ERROR_ID_IS_RESERVED);
                     }
-                    this.command.values[ident] = this.expectValue();
+                    let v = this.expectValue(true);
+                    if (v !== undefined) {
+                        this.command.values[ident] = v;
+                    }
                 }
                 this.expectEnd();
                 return this.command;
@@ -215,6 +232,7 @@ class CommandParser {
                 this.command.index = this.expectIdent();
                 this.command.query = this.expectValue();
                 this.command.limit = 1000;
+                this.command.foreignKeys = [];
                 w: while (true) {
                     switch (this.tryKw('SORTBY', 'LIMIT', 'WITHFOREIGNKEYS')) {
                         case 'SORTBY':
@@ -225,7 +243,6 @@ class CommandParser {
                             this.command.limit = this.expectZeroPositiveInteger();
                             break;
                         case 'WITHFOREIGNKEYS':
-                            this.command.foreignKeys = [];
                             while (true) {
                                 let ident = this.tryIdent();
                                 if (!ident) {
@@ -263,8 +280,12 @@ class CommandParser {
     expectIdent() {
         return this.expect('IDENT');
     }
-    expectValue() {
-        return this.expect('VALUE');
+    expectValue(acceptUndefined = false) {
+        let value = this.expect('VALUE');
+        if (value === undefined && !acceptUndefined) {
+            throw new C.CommandParserError(COMMAND_PARSER_ERROR_EXPECT_NOT_UNDEFINED_VALUE);
+        }
+        return value;
     }
     expectEnd() {
         if (this.tokens.length) {
@@ -335,9 +356,6 @@ class CommandParser {
     }
     tryIdent() {
         return this.try('IDENT');
-    }
-    tryValue() {
-        return this.try('VALUE');
     }
     tryEnd() {
         return !this.tokens.length;

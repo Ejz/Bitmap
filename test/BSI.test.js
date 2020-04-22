@@ -59,9 +59,9 @@ test('BSI / add / getBitmap - 0-7', () => {
 
 test('BSI / add / getBitmap - multi', () => {
     let time;
-    let limit = 1E5;
+    let limit = 1E4;
     let min = 1;
-    let max = 1E5;
+    let max = 1E4;
     let values = [];
     let bsi = new BSI(min, max);
     for (let id = 1; id <= limit; id++) {

@@ -74,8 +74,6 @@ function CREATE({index, fields}) {
                 }
                 storage[references].links[index] = field;
                 field.id2fk = Object.create(null);
-            } else if (type == C.TYPES.FULLTEXT && prefixSearch) {
-                field.triplets = Object.create(null);
             }
         }
     }
@@ -129,7 +127,7 @@ function RENAME({index, name}) {
     return C.BITMAP_OK;
 }
 
-function STAT({index}) {
+function STAT({index, field, limit}) {
     if (!index) {
         let reply = {};
         let memoryUsage = process.memoryUsage();
@@ -145,15 +143,33 @@ function STAT({index}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
     }
-    index = storage[index];
-    let size = index.ids.size;
-    return {
-        size: size,
-        id_minimum: size > 0 ? index.ids.minimum() : 0,
-        id_maximum: size > 0 ? index.ids.maximum() : 0,
-        used_bitmaps: index.bitmaps.length,
-        used_bits: index.bitmaps.reduce((acc, v) => acc + v.size, 0),
-    };
+    let {bitmaps, ids, fields} = storage[index];
+    if (!field) {
+        let size = ids.size;
+        return {
+            size: size,
+            id_minimum: size > 0 ? ids.minimum() : 0,
+            id_maximum: size > 0 ? ids.maximum() : 0,
+            used_bitmaps: bitmaps.length,
+            used_bits: bitmaps.reduce((acc, v) => acc + v.size, 0),
+        };
+    }
+    if (!fields[field]) {
+        throw new C.BitmapError(C.BITMAP_ERROR_FIELD_NOT_EXISTS);
+    }
+    if (C.IS_INTEGER(fields[field].type)) {
+        throw new C.BitmapError(C.BITMAP_ERROR_STAT_ON_INTEGER_TYPE);
+    }
+    bitmaps = fields[field].bitmaps;
+    let reduce = (acc, key) => (acc.push([key, bitmaps[key].size]), acc);
+    let ret = Object.keys(bitmaps).reduce(reduce, []);
+    ret.sort(([, s1], [, s2]) => s2 - s1);
+    ret = ret.reduce((acc, [k, v]) => (acc[k] = v, acc), Object.create(null));
+    if (limit !== undefined) {
+        let reduce = (acc, key) => (acc[key] = ret[key], acc);
+        return Object.keys(ret).filter((k, i) => i < limit).reduce(reduce, Object.create(null));
+    }
+    return ret;
 }
 
 function ADD({index, id, values}) {
@@ -164,84 +180,115 @@ function ADD({index, id, values}) {
     if (ids.has(id)) {
         throw new C.BitmapError(C.BITMAP_ERROR_ID_EXISTS);
     }
-    let f1 = Object.entries(values).find(([field]) => !fields[field]);
-    if (f1) {
-        throw new C.BitmapError(C.BITMAP_ERROR_FIELD_NOT_EXISTS);
-    }
-    let f2 = Object.entries(values).find(([field, value]) =>
-        C.IS_INTEGER(fields[field].type) && (
-            value < fields[field].min || fields[field].max < value
-        )
-    );
-    if (f2) {
-        throw new C.BitmapError(C.BITMAP_ERROR_OUT_OF_RANGE);
-    }
     for (let field of Object.keys(values)) {
-        let {type, references} = fields[field];
-        if (type == C.TYPES.FOREIGNKEY) {
-            let v = _.toInteger(values[field]);
-            if (
-                v === undefined ||
-                v < 1 ||
-                !storage[references].ids.has(v)
-            ) {
-                throw new C.BitmapError(C.BITMAP_ERROR_INVALID_FOREIGN_KEY_ID, values[field], references);
-            }
-            values[field] = v;
+        if (!fields[field]) {
+            throw new C.BitmapError(C.BITMAP_ERROR_FIELD_NOT_EXISTS);
         }
+        let {type, references, min, max, separator} = fields[field];
+        let e, ctx, v;
+        switch (type) {
+            case C.TYPES.INTEGER:
+                v = _.toInteger(values[field]);
+                if (v === undefined) {
+                    e = C.BITMAP_ERROR_EXPECT_INTEGER;
+                    ctx = {value: values[field], field};
+                    throw new C.BitmapError(e, ctx);
+                }
+                if (v < min || max < v) {
+                    e = C.BITMAP_ERROR_OUT_OF_RANGE;
+                    ctx = {min, max, value: v, field};
+                    throw new C.BitmapError(e, ctx);
+                }
+                break;
+            case C.TYPES.DATE:
+                v = _.toDateInteger(values[field]);
+                if (v === undefined) {
+                    throw new C.BitmapError(C.BITMAP_ERROR_EXPECT_DATE);
+                }
+                if (v < min || max < v) {
+                    e = C.BITMAP_ERROR_OUT_OF_RANGE;
+                    ctx = {min, max, value: v, field};
+                    throw new C.BitmapError(e, ctx);
+                }
+                break;
+            case C.TYPES.DATETIME:
+                v = _.toDateTimeInteger(values[field]);
+                if (v === undefined) {
+                    throw new C.BitmapError(C.BITMAP_ERROR_EXPECT_DATETIME);
+                }
+                if (v < min || max < v) {
+                    e = C.BITMAP_ERROR_OUT_OF_RANGE;
+                    ctx = {min, max, value: v, field};
+                    throw new C.BitmapError(e, ctx);
+                }
+                break;
+            case C.TYPES.BOOLEAN:
+                v = _.toBoolean(values[field]);
+                break;
+            case C.TYPES.STRING:
+                v = String(values[field]);
+                break;
+            case C.TYPES.ARRAY:
+                v = String(values[field]).split(separator);
+                v = _.unique(v);
+                v = v.filter(v => v.length);
+                break;
+            case C.TYPES.FULLTEXT:
+                v = _.wordSplit(String(values[field]));
+                break;
+            case C.TYPES.FOREIGNKEY:
+                v = _.toInteger(values[field]);
+                if (
+                    v === undefined ||
+                    v < 1 ||
+                    !storage[references].ids.has(v)
+                ) {
+                    e = C.BITMAP_ERROR_INVALID_FOREIGN_KEY_ID;
+                    ctx = {references, value: values[field]};
+                    throw new C.BitmapError(e, ctx);
+                }
+                break;
+        }
+        values[field] = v;
     }
     for (let [field, value] of Object.entries(values)) {
         field = fields[field];
-        let {type, bitmaps, separator, triplets, id2fk} = field;
+        let {type, bitmaps, id2fk} = field;
         let toBitmaps = v => {
             bitmaps[v] = bitmaps[v] || storage[index].newBitmap();
             bitmaps[v].add(id);
         };
-        let toTriplets = v => {
-            triplets[v] = triplets[v] || storage[index].newBitmap();
-            triplets[v].add(id);
-        };
         switch (type) {
             case C.TYPES.INTEGER:
-                value = _.toInteger(value);
-                if (value === undefined) {
-                    throw new C.BitmapError(C.BITMAP_ERROR_EXPECT_INTEGER);
-                }
                 field.bsi.add(id, value);
                 break;
             case C.TYPES.DATE:
-                value = _.toDateInteger(value);
-                if (value === undefined) {
-                    throw new C.BitmapError(C.BITMAP_ERROR_EXPECT_DATE);
-                }
                 field.bsi.add(id, value);
                 break;
             case C.TYPES.DATETIME:
-                value = _.toDateTimeInteger(value);
-                if (value === undefined) {
-                    throw new C.BitmapError(C.BITMAP_ERROR_EXPECT_DATETIME);
-                }
                 field.bsi.add(id, value);
                 break;
             case C.TYPES.BOOLEAN:
-                value = _.toBoolean(value);
                 toBitmaps(value ? '1' : '0');
                 break;
             case C.TYPES.STRING:
-                toBitmaps(String(value));
+                toBitmaps(value);
                 break;
             case C.TYPES.ARRAY:
-                value = String(value).split(separator);
-                _.unique(value).forEach(toBitmaps);
+                value.forEach(toBitmaps);
                 break;
             case C.TYPES.FULLTEXT:
                 let {noStopwords, prefixSearch} = field;
-                _.stem(value, noStopwords).forEach(toBitmaps);
-                prefixSearch && _.triplet(value).forEach(toTriplets);
+                _.stem(value, noStopwords).forEach(word => {
+                    toBitmaps(word);
+                    if (prefixSearch) {
+                        _.prefixSearch(word).map(w => w + '*').forEach(toBitmaps);
+                    }
+                });
                 break;
             case C.TYPES.FOREIGNKEY:
-                toBitmaps(String(value));
                 id2fk[id] = value;
+                toBitmaps(String(value));
                 break;
         }
     }
@@ -288,23 +335,26 @@ function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys})
         let type, bitmaps, min, max, bsi;
         if (field === undefined) {
             let fulltext = Object.entries(fields).map(([, v]) => v).filter(f => f.type == C.TYPES.FULLTEXT);
-            fulltext = fulltext.map(({noStopwords, bitmaps, triplets}) => {
-                let prefixSearch = false;
+            fulltext = fulltext.map(({noStopwords, bitmaps, prefixSearch}) => {
+                let ps = false;
                 let val = value;
                 if (_.isObject(value)) {
-                    prefixSearch = value.prefixSearch;
+                    ps = value.prefixSearch;
                     val = value.value;
                 }
-                let words = _.wordSplit(val);
+                let words = _.wordSplit(val, ps && prefixSearch);
                 if (!words.length) {
                     return new RoaringBitmap();
                 }
-                let bitmap1 = prefixSearch && triplets && searchInTriplets(words.pop(), triplets);
+                let bitmap1;
+                if (ps && prefixSearch) {
+                    bitmap1 = bitmaps[words.pop().substring(0, 6) + '*'] || new RoaringBitmap();
+                }
                 let andMany = _.stem(words, noStopwords).map(
                     word => bitmaps[word] || new RoaringBitmap()
                 );
-                let bitmap2 = RoaringBitmap.andMany(andMany);
-                return bitmap1 ? RoaringBitmap.orMany([bitmap1, bitmap2]) : bitmap2;
+                bitmap1 && andMany.push(bitmap1);
+                return RoaringBitmap.andMany(andMany);
             });
             return RoaringBitmap.orMany(fulltext);
         } else if (field == C.BITMAP_ID) {
@@ -369,30 +419,28 @@ function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys})
         }
         return ret;
     }
-    let iterator, ret = [bitmap.size];
+    let iterator, ret = {total: bitmap.size, ids: []};
     if (sortby) {
         iterator = fields[sortby].bsi.sort(bitmap, !desc);
     } else {
         iterator = bitmap.iterator();
     }
     for (let id of (limit > 0 ? iterator : [])) {
-        ret.push(id);
+        ret.ids.push(id);
         limit--;
         if (!limit) {
             break;
         }
     }
-    if (foreignKeys) {
+    if (foreignKeys.length) {
         foreignKeys = _.unique(foreignKeys);
         foreignKeys = foreignKeys.map(fk => [fk, fields[fk].id2fk]);
-        ret = ret.map((id, x) => {
-            if (x == 0) {
-                return id;
-            }
+        ret.records = ret.ids.map(id => {
             let r = {id};
             foreignKeys.forEach(fk => r[fk[0]] = fk[1][id]);
             return r;
         });
+        delete ret.ids;
     }
     if (!bitmap.persist) {
         bitmap.clear();
@@ -405,7 +453,7 @@ function SHOWCREATE({index}) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
     }
     let fields = Object.entries(storage[index].fields).map(([name, field]) => {
-        let ret = ['"' + name + '"', field.type];
+        let cast, ret = ['"' + name + '"', field.type];
         switch (field.type) {
             case C.TYPES.ARRAY:
                 ret.push('SEPARATOR', '\'' + field.separator + '\'');
@@ -414,11 +462,11 @@ function SHOWCREATE({index}) {
                 ret.push('MIN', field.min, 'MAX', field.max);
                 break;
             case C.TYPES.DATE:
-                let cast = d => new Date(d * 864E5).toISOString().replace(/T.*$/, '');
+                cast = d => new Date(d * 864E5).toISOString().replace(/T.*$/, '');
                 ret.push('MIN', cast(field.min), 'MAX', cast(field.max));
                 break;
             case C.TYPES.DATETIME:
-                let cast = d => new Date(d * 1E3).toISOString().replace(/\..*$/, '');
+                cast = d => new Date(d * 1E3).toISOString().replace(/\..*$/, '');
                 ret.push('MIN', cast(field.min), 'MAX', cast(field.max));
                 break;
             case C.TYPES.FULLTEXT:

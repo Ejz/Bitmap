@@ -2,61 +2,105 @@ const C = require('./constants');
 const http = require('http');
 const readline = require('readline');
 
-let sendQuery = (query, options) => {
-    return new Promise((resolve, reject) => {
-        let req = http.request(options, res => {
-            let body = [];
-            res.setEncoding('utf8');
-            res.on('data', chunk => body.push(chunk.toString()));
-            res.on('end', () => {
-                try {
-                    resolve(JSON.parse(body.join('')));
-                } catch (e) {
-                    reject(e + ' (' + String(body).trim() + ')');
-                }
-            });
-        });
-        req.on('error', reject);
-        req.write(JSON.stringify({query}));
-        req.end();
-    });
-};
-
 function createClient(auth) {
-    let connect = (port = C.SERVER_PORT, host = C.SERVER_HOST) => {
-        let options = {
-            port,
-            hostname: host,
+    return {
+        auth,
+        connected: false,
+        options: {
             path: '/',
             method: 'POST',
             headers: {
                 'Content-Type': C.SERVER_CONTENT_TYPE,
             },
-        };
-        if (auth) {
-            options.headers['Authorization'] = auth;
-        }
-        let rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout,
-        });
-        let question = q => {
-            rl.question(q, a => {
-                if (['exit', 'quit'].includes(a.trim().toLowerCase())) {
-                    rl.close();
-                }
-                sendQuery(a, options).then(res => {
-                    console.log(res.error || res.result);
-                    question(q);
-                }).catch(e => {
-                    console.log(String(e));
-                    rl.close();
+        },
+        escapeIdent(ident) {
+            return '"' + ident + '"';
+        },
+        escapeValue(value) {
+            let cb = (m, p1) => p1 == '\'' ? '\\\'' : '\\\\';
+            return '\'' + value.replace(/('|\\)/g, cb) + '\'';
+        },
+        sendQuery(query, ...args) {
+            if (args.length) {
+                let cb = (m, p1) => {
+                    let v = args.shift();
+                    switch (p1) {
+                        case '?':
+                            return v === undefined ? 'UNDEFINED' : this.escapeValue(v);
+                        case '#':
+                            return v === undefined ? 'UNDEFINED' : this.escapeIdent(v);
+                        default:
+                            return v;
+                    }
+                };
+                query = query.replace(/([%#\?])/g, cb);
+            }
+            return new Promise((resolve, reject) => {
+                let req = http.request(this.options, res => {
+                    let body = [];
+                    res.setEncoding('utf8');
+                    res.on('data', chunk => body.push(chunk.toString()));
+                    res.on('end', () => {
+                        try {
+                            resolve(JSON.parse(body.join('')));
+                        } catch (e) {
+                            reject(e + ' (' + String(body).trim() + ')');
+                        }
+                    });
+                });
+                req.on('error', reject);
+                req.write(JSON.stringify({query}));
+                req.end();
+            });
+        },
+        connect(port = C.SERVER_PORT, host = C.SERVER_HOST) {
+            this.options.port = port;
+            this.options.hostname = host;
+            if (this.auth) {
+                this.options.headers['Authorization'] = auth;
+            }
+            return new Promise((resolve, reject) => {
+                this.sendQuery('PING').then(r => {
+                    this.connected = true;
+                    resolve();
+                }).catch(r => {
+                    this.connected = false;
+                    reject(r);
                 });
             });
-        };
-        question('> ');
+        },
+        question(invite = '> ') {
+            let rl = readline.createInterface({
+                input: process.stdin,
+                output: process.stdout,
+            });
+            let question = invite => {
+                rl.question(invite, a => {
+                    a = a.trim();
+                    if (['exit', 'quit'].includes(a.toLowerCase())) {
+                        rl.close();
+                    }
+                    if (!a) {
+                        question(invite);
+                        return;
+                    }
+                    this.sendQuery(a).then(res => {
+                        res = res.error || res.result;
+                        if (typeof(res) == 'string') {
+                            console.log(res);
+                        } else {
+                            console.log(JSON.stringify(res, null, 2));
+                        }
+                        question(invite);
+                    }).catch(e => {
+                        console.log(String(e));
+                        rl.close();
+                    });
+                });
+            };
+            question(invite);
+        },
     };
-    return {connect};
 }
 
 module.exports = createClient;

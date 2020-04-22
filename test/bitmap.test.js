@@ -114,10 +114,9 @@ test('bitmap / SEARCH / 1', () => {
         '-@f1:(bar|foo)': [3, 4],
         '-@f1:bar & @f1:(unknown|foo)': [1],
     };
-    let res;
     for (let [query, result] of Object.entries(cases)) {
-        [, ...res] = bitmap.execute(`search index '${query}'`);
-        expect(res).toEqual(result);
+        let {ids} = bitmap.execute(`search index '${query}'`);
+        expect(ids).toEqual(result);
     }
     bitmap.execute('drop index');
 });
@@ -157,10 +156,9 @@ test('bitmap / SEARCH / 2', () => {
         '@f1:Max': [5],
         '@f1:Min': [1],
     };
-    let res;
     for (let [query, result] of Object.entries(cases)) {
-        [, ...res] = bitmap.execute(`search index '${query}'`);
-        expect(res).toEqual(result);
+        let {ids} = bitmap.execute(`search index '${query}'`);
+        expect(ids).toEqual(result);
     }
     bitmap.execute('drop index');
 });
@@ -183,10 +181,9 @@ test('bitmap / SEARCH / 3', () => {
         '(~foo & ~bar)': [1],
         'a': [1],
     };
-    let res;
     for (let [query, result] of Object.entries(cases)) {
-        [, ...res] = bitmap.execute(`search index '${query}'`);
-        expect(res).toEqual(result);
+        let {ids} = bitmap.execute(`search index '${query}'`);
+        expect(ids).toEqual(result);
     }
     bitmap.execute('drop index');
 });
@@ -198,8 +195,12 @@ test('bitmap / SEARCH / LIMIT', () => {
         bitmap.execute(`add index ${id} values f1 ${id}`);
         id++;
     }
-    expect(bitmap.execute('search index \'*\' limit 0')).toEqual([9]);
-    expect(bitmap.execute('search index \'* & @id > 7\' limit 1')).toEqual([2, 8]);
+    let r1 = bitmap.execute('search index \'*\' limit 0');
+    expect(r1).toEqual({total: 9, ids: []});
+    //
+    let r2 = bitmap.execute('search index \'* & @id > 7\' limit 1');
+    expect(r2).toEqual({total: 2, ids: [8]});
+    //
     bitmap.execute('drop index');
 });
 
@@ -215,12 +216,14 @@ test('bitmap / SEARCH / SORTBY', () => {
         values.push([id, v]);
         id++;
     }
-    let [, ...r1] = bitmap.execute('search index \'*\' sortby f1');
+    let {ids: ids1} = bitmap.execute('search index \'*\' sortby f1');
     values.sort(asc);
-    expect(r1).toEqual(values.map(_ => _[0]));
-    let [, ...r2] = bitmap.execute('search index \'*\' sortby f1 desc');
+    expect(ids1).toEqual(values.map(_ => _[0]));
+    //
+    let {ids: ids2} = bitmap.execute('search index \'*\' sortby f1 desc');
     values.sort(desc);
-    expect(r2).toEqual(values.map(_ => _[0]));
+    expect(ids2).toEqual(values.map(_ => _[0]));
+    //
     bitmap.execute('drop index');
 });
 
@@ -233,7 +236,9 @@ test('bitmap / SEARCH / WITHFOREIGNKEYS', () => {
     bitmap.execute('add child 2 values parent 2');
     bitmap.execute('add child 3 values parent 1');
     let r = bitmap.execute('search child \'@parent:2\' withforeignkeys "parent"');
-    expect(r).toEqual([1, {id: 2, parent: 2}]);
+    expect(r.total).toEqual(1);
+    expect(r.records).toEqual([{id: 2, parent: 2}]);
+    expect('ids' in r).toEqual(false);
     bitmap.execute('drop child');
     bitmap.execute('drop parent');
 });
@@ -268,9 +273,27 @@ test('bitmap / SEARCH / 4', () => {
         '@@child:(hello | hi)': ['parent', [1, 2]],
     };
     for (let [query, [index, result]] of Object.entries(cases)) {
-        let [, ...res] = bitmap.execute(`search ${index} '${query}'`);
-        expect(res).toEqual(result);
+        let {ids} = bitmap.execute(`search ${index} '${query}'`);
+        expect(ids).toEqual(result);
     }
     bitmap.execute('drop child');
     bitmap.execute('drop parent');
+});
+
+test('bitmap / SEARCH / 5', () => {
+    bitmap.execute('create index fields ft fulltext prefixsearch');
+    bitmap.execute('add index 1 values ft \'sahara foo\'');
+    bitmap.execute('add index 2 values ft \'Salwas bar\'');
+    bitmap.execute('add index 3 values ft \'somsal news\'');
+    let cases = {
+        '~sa': [1, 2],
+        '~"foo sa"': [1],
+        '~"salw"': [2],
+        '"salw"': [],
+    };
+    for (let [query, result] of Object.entries(cases)) {
+        let {ids} = bitmap.execute(`search index '${query}'`);
+        expect(ids).toEqual(result);
+    }
+    bitmap.execute('drop index');
 });

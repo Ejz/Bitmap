@@ -40,6 +40,11 @@ test('stem', () => {
 });
 
 test('triplet', () => {
-    expect(_.triplet('hello')).toStrictEqual(['h', 'he', 'hel', 'ell', 'llo']);
-    expect(_.triplet('hii')).toStrictEqual(['h', 'hi', 'hii']);
+    expect(_.triplet('hello')).toEqual(['h', 'he', 'hel', 'ell', 'llo']);
+    expect(_.triplet('hii')).toEqual(['h', 'hi', 'hii']);
+});
+
+test('prefixSearch', () => {
+    expect(_.prefixSearch('hello')).toEqual(['hello', 'hell', 'hel', 'he', 'h']);
+    expect(_.prefixSearch('hello', 3)).toEqual(['hel', 'he', 'h']);
 });

@@ -5,9 +5,7 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-        "test": "jest",
-        "server": "node -e 'require(\"./server\")().listen(...process.argv.slice(1))'",
-        "client": "node -e 'require(\"./client\")().connect(...process.argv.slice(1))'"
+        "test": "jest"
     },
     "keywords": [],
     "author": "",

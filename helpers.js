@@ -63,13 +63,19 @@ function toInteger(v) {
 }
 
 function toBoolean(v) {
-    return ['true', '1'].includes(String(v).toLowerCase());
+    return ['true', '1', 'yes'].includes(String(v).toLowerCase());
 }
 
-function wordSplit(sentence) {
+function wordSplit(sentence, prefixSearch) {
     let words = sentence.trim().toLowerCase().split(/\W+/);
     words = words.filter(word => word.length);
-    words = words.filter((v, i, a) => a.lastIndexOf(v) == i);
+    if (prefixSearch) {
+        let w = words.pop();
+        words = words.filter((v, i, a) => a.lastIndexOf(v) == i);
+        words.push(w);
+    } else {
+        words = words.filter((v, i, a) => a.lastIndexOf(v) == i);
+    }
     return words;
 }
 
@@ -81,6 +87,14 @@ function stem(sentence, noStopwords) {
     words = words.map(word => snowball.stemword(word));
     words = words.filter((v, i, a) => a.lastIndexOf(v) == i);
     return words;
+}
+
+function prefixSearch(word, max = 6) {
+    let ret = [];
+    for (let i = Math.min(word.length, max); i >= 1; i--) {
+        ret.push(word.substring(0, i));
+    }
+    return ret;
 }
 
 function triplet(word) {
@@ -105,6 +119,7 @@ module.exports = {
     isObject,
     isNumeric,
     rand,
+    to,
     nsplit,
     unique,
     filter,
@@ -114,5 +129,6 @@ module.exports = {
     toBoolean,
     wordSplit,
     stem,
+    prefixSearch,
     triplet,
 };

@@ -2,6 +2,101 @@
 
 An open sourced high-speed index. Based on [Roaring Bitmaps](https://roaringbitmap.org/) technology.
 
+## Try it
+
+Clone and start:
+
+```bash
+$ git clone 'https://github.com/Ejz/Bitmap.git'
+$ cd Bitmap
+$ npm i
+$ node etc/server.js & spid="$!"
+```
+
+Populate index with [airports.csv](https://ourairports.com/data/airports.csv). Then connect to server via client:
+
+```bash
+$ node etc/populate.js | grep -v OK
+$ node etc/client.js
+```
+
+Let's check server statistics:
+
+```
+> stat
+{
+  "memory_rss": 226549760,
+  "memory_rss_human": "227M",
+  "memory_heap_total": 132669440,
+  "memory_heap_total_human": "133M",
+  "memory_heap_used": 78631192,
+  "memory_heap_used_human": "79M",
+  "memory_external": 244029,
+  "memory_external_human": "244K"
+}
+```
+
+`airports` statistics:
+
+```
+> stat airports
+{
+  "size": 56154,
+  "id_minimum": 2,
+  "id_maximum": 333948,
+  "used_bitmaps": 299411,
+  "used_bits": 2897604
+}
+```
+
+Field `type` statistics:
+
+```
+> stat airports type
+{
+  "small_airport": 34361,
+  "heliport": 11491,
+  "medium_airport": 4541,
+  "closed": 4101,
+  "seaplane_base": 1021,
+  "large_airport": 616,
+  "balloonport": 23
+}
+```
+
+Let's find all `balloonport` airports:
+
+```
+> search airports '@type:balloonport'
+{
+  "total": 23,
+  "ids": [
+    7767,
+    ..
+  ]
+}
+```
+
+Now, all US airports with _Franklin_ in name:
+
+```
+> search airports '@iso_country:US franklin'
+{
+  "total": 25,
+  "ids": [
+    7350,
+    ..
+  ]
+}
+```
+
+Finish:
+
+```bash
+> exit
+$ kill "$spid"
+```
+
 ## Queries
 
 * `*` &ndash; search all<br><br>

@@ -60,13 +60,7 @@ function createClient(auth) {
                 this.options.headers['Authorization'] = auth;
             }
             return new Promise((resolve, reject) => {
-                this.sendQuery('PING').then(r => {
-                    this.connected = true;
-                    resolve();
-                }).catch(r => {
-                    this.connected = false;
-                    reject(r);
-                });
+                this.sendQuery('PING').then(resolve).catch(reject);
             });
         },
         question(invite = '> ') {
@@ -79,6 +73,7 @@ function createClient(auth) {
                     a = a.trim();
                     if (['exit', 'quit'].includes(a.toLowerCase())) {
                         rl.close();
+                        return;
                     }
                     if (!a) {
                         question(invite);

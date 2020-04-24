@@ -77,7 +77,7 @@ Let's find all `balloonport` airports:
 }
 ```
 
-Now, all US airports with _Franklin_ in name:
+All US airports with _Franklin_ in name:
 
 ```
 > search airports '@iso_country:US franklin'
@@ -90,11 +90,38 @@ Now, all US airports with _Franklin_ in name:
 }
 ```
 
+Sort US airports by `elevation_ft` in descending order:
+
+```
+> search airports '@iso_country:US' SORTBY elevation_ft DESC
+{
+  "total": 22946,
+  "ids": [
+    16668,
+    ..
+  ]
+}
+```
+
 Finish:
 
 ```bash
 > exit
 $ kill "$spid"
+```
+
+## Quick start with Docker
+
+```bash
+$ sudo docker run -d --name bm ejzspb/bitmap
+$ sudo docker run -ti --link bm:bm ejzspb/bitmap node etc/populate.js 61000 bm
+$ sudo docker run -ti --link bm:bm ejzspb/bitmap node etc/client.js 61000 bm
+> list
+[
+  "airports"
+]
+> exit
+$ sudo docker rm -f bm
 ```
 
 ## Queries

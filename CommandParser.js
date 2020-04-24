@@ -6,7 +6,7 @@ let TYPES = Object.entries(C.TYPES).map(([k, v]) => v);
 
 let KW = [
     'PING', 'CREATE', 'DROP', 'LIST', 'ADD', 'STAT', 'RENAME',
-    'SEARCH',
+    'SEARCH', 'CURSOR',
     'SHOWCREATE', 'SLOWQUERYLOG',
     'FIELDS', 'VALUES',
     'NOSTOPWORDS', 'PREFIXSEARCH',
@@ -17,6 +17,7 @@ let KW = [
     'ASC', 'DESC',
     'WITHFOREIGNKEYS',
     'UNDEFINED',
+    'TIMEOUT', 'WITHCURSOR',
     ...TYPES,
 ];
 
@@ -228,19 +229,28 @@ class CommandParser {
                 }
                 this.expectEnd();
                 return this.command;
+            case 'CURSOR':
+                this.command.cursor = this.expectIdent();
+                return this.command;
             case 'SEARCH':
                 this.command.index = this.expectIdent();
                 this.command.query = this.expectValue();
                 this.command.limit = 1000;
                 this.command.foreignKeys = [];
                 w: while (true) {
-                    switch (this.tryKw('SORTBY', 'LIMIT', 'WITHFOREIGNKEYS')) {
+                    switch (this.tryKw('SORTBY', 'LIMIT', 'WITHFOREIGNKEYS', 'WITHCURSOR')) {
                         case 'SORTBY':
                             this.command.sortby = this.expectIdent();
                             this.command.desc = this.tryKw('ASC', 'DESC') == 'DESC';
                             break;
                         case 'LIMIT':
                             this.command.limit = this.expectZeroPositiveInteger();
+                            break;
+                        case 'WITHCURSOR':
+                            this.command.withCursor = C.CURSOR_TIMEOUT;
+                            if (this.tryKw('TIMEOUT')) {
+                                this.command.withCursor = this.expectPositiveInteger();
+                            }
                             break;
                         case 'WITHFOREIGNKEYS':
                             while (true) {
@@ -254,6 +264,9 @@ class CommandParser {
                         default:
                             break w;
                     }
+                }
+                if (this.command.withCursor && !this.command.limit) {
+                    throw new C.CommandParserError(C.COMMAND_PARSER_ERROR_ZERO_LIMIT_WITH_CURSOR);
                 }
                 this.expectEnd();
                 return this.command;

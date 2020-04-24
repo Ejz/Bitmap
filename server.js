@@ -58,6 +58,9 @@ function createServer(settings = {}) {
         listen() {
             this.server.listen(this.settings.port, this.settings.host);
         },
+        close() {
+            this.server.close();
+        },
     };
 }
 

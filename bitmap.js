@@ -6,6 +6,7 @@ const CommandParser = require('./CommandParser');
 const QueryParser = require('./QueryParser');
 
 let storage = Object.create(null);
+let cursors = Object.create(null);
 
 let isUnique = arr => arr.length == _.unique(arr).length;
 
@@ -296,7 +297,7 @@ function ADD({index, id, values}) {
     return C.BITMAP_OK;
 }
 
-function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys}) {
+function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys, withCursor}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
     }
@@ -442,8 +443,55 @@ function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys})
         });
         delete ret.ids;
     }
-    if (!bitmap.persist) {
-        bitmap.clear();
+    if (withCursor) {
+        ret.cursor = null;
+        if (ret.ids.length < ret.total) {
+            let cursor = generateCursor();
+            let tid = setTimeout(deleteCursor, withCursor * 1000, cursor);
+            cursors[cursor] = {
+                foreignKeys,
+                tid,
+                iterator,
+                total: ret.total,
+                offset: ret.ids.length,
+                timeout: withCursor,
+                limit: ret.ids.length + limit,
+            };
+            ret.cursor = cursor;
+        }
+    }
+    return ret;
+}
+
+function CURSOR({cursor}) {
+    if (!cursors[cursor]) {
+        throw new C.BitmapError(C.BITMAP_ERROR_CURSOR_NOT_EXISTS);
+    }
+    let {foreignKeys, iterator, total, offset, timeout, limit} = cursors[cursor];
+    clearTimeout(cursors[cursor].tid);
+    let ret = {total: total, ids: []};
+    for (let id of iterator) {
+        ret.ids.push(id);
+        limit--;
+        if (!limit) {
+            break;
+        }
+    }
+    if (offset + ret.ids.length < total) {
+        cursors[cursor].tid = setTimeout(deleteCursor, timeout * 1000, cursor);
+        cursors[cursor].offset += ret.ids.length;
+        ret.cursor = cursor;
+    } else {
+        ret.cursor = null;
+        delete cursors[cursor];
+    }
+    if (foreignKeys.length) {
+        ret.records = ret.ids.map(id => {
+            let r = {id};
+            foreignKeys.forEach(fk => r[fk[0]] = fk[1][id]);
+            return r;
+        });
+        delete ret.ids;
     }
     return ret;
 }
@@ -503,15 +551,20 @@ function SLOWQUERYLOG({index}) {
     return storage[index].slowQueryLog;
 }
 
-function searchInTriplets(word, triplets) {
-    let t3 = _.triplet(word);
-    t3.length > 1 && t3.shift();
-    t3.length > 1 && t3.shift();
-    return RoaringBitmap.andMany(t3.map(w => triplets[w] || new RoaringBitmap()));
-}
-
 function dump(index) {
     return storage[index];
+}
+
+function generateCursor() {
+    let hex;
+    do {
+        hex = Math.floor(Math.random() * Math.pow(2, 32)).toString(16);
+    } while (hex.length < 8 || Number(hex.substring(0, 1)) || cursors[hex]);
+    return hex;
+}
+
+function deleteCursor(cursor) {
+    delete cursors[cursor];
 }
 
 module.exports = {
@@ -524,6 +577,7 @@ module.exports = {
     STAT,
     ADD,
     SEARCH,
+    CURSOR,
     SHOWCREATE,
     SLOWQUERYLOG,
     dump,

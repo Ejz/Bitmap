@@ -224,6 +224,67 @@ test('bitmap / SEARCH / SORTBY', () => {
     values.sort(desc);
     expect(ids2).toEqual(values.map(_ => _[0]));
     //
+    let {ids: ids3, lastSortbyValue} = bitmap.execute('search index \'*\' sortby f1 desc limit 10');
+    values.sort(desc);
+    expect(ids3).toEqual(values.map(_ => _[0]).slice(0, 10));
+    //
+    bitmap.execute('drop index');
+});
+
+test('bitmap / CURSOR / 1', () => {
+    bitmap.execute('create index fields f1 integer');
+    bitmap.execute('add index 1 values f1 2');
+    bitmap.execute('add index 2 values f1 3');
+    bitmap.execute('add index 3 values f1 1');
+    let r1 = bitmap.execute('search index \'*\' withcursor limit 1');
+    expect(r1.ids).toEqual([1]);
+    let r2 = bitmap.execute('cursor ' + r1.cursor);
+    expect(r2.ids).toEqual([2]);
+    let r3 = bitmap.execute('cursor ' + r1.cursor);
+    expect(r3.ids).toEqual([3]);
+    expect(r3.cursor).toEqual(null);
+    bitmap.execute('drop index');
+});
+
+test('bitmap / CURSOR / 2', () => {
+    bitmap.execute('create index');
+    expect(() => bitmap.execute('search index \'*\' withcursor limit 0')).toThrow(C.CommandParserError);
+    bitmap.execute('drop index');
+});
+
+test('bitmap / CURSOR / 3', async () => {
+    bitmap.execute('create index');
+    bitmap.execute('add index 1');
+    bitmap.execute('add index 2');
+    bitmap.execute('add index 3');
+    let {cursor} = bitmap.execute('search index \'*\' withcursor timeout 1 limit 1');
+    let r1 = bitmap.execute('cursor ' + cursor);
+    expect(r1.ids).toEqual([2]);
+    await new Promise(r => setTimeout(r, 1500));
+    expect(() => bitmap.execute('cursor ' + cursor)).toThrow(C.BitmapError);
+    bitmap.execute('drop index');
+});
+
+test('bitmap / CURSOR / 4', async () => {
+    bitmap.execute('create index');
+    bitmap.execute('add index 1');
+    bitmap.execute('add index 2');
+    bitmap.execute('add index 3');
+    bitmap.execute('add index 4');
+    bitmap.execute('add index 5');
+    let {cursor} = bitmap.execute('search index \'*\' withcursor timeout 1 limit 1');
+    let r1 = bitmap.execute('cursor ' + cursor);
+    expect(r1.ids).toEqual([2]);
+    await new Promise(r => setTimeout(r, 500));
+    let r2 = bitmap.execute('cursor ' + cursor);
+    expect(r2.ids).toEqual([3]);
+    await new Promise(r => setTimeout(r, 500));
+    let r3 = bitmap.execute('cursor ' + cursor);
+    expect(r3.ids).toEqual([4]);
+    await new Promise(r => setTimeout(r, 500));
+    let r5 = bitmap.execute('cursor ' + cursor);
+    expect(r5.ids).toEqual([5]);
+    expect(r5.cursor).toEqual(null);
     bitmap.execute('drop index');
 });
 

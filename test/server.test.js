@@ -35,8 +35,8 @@ let sendRequest = async (body, opts = {}) => {
 
 test('server / errors', async () => {
     let res, port = 2000 + Math.round(1000 * Math.random());
-    let server = createServer('foo');
-    server.listen(port);
+    let server = createServer({port, auth: 'foo'});
+    server.listen();
     options.port = port;
     res = await sendRequest('', {method: 'GET'});
     expect(res.error).toEqual(C.SERVER_ERROR_INVALID_METHOD);
@@ -68,8 +68,8 @@ test('server / errors', async () => {
 
 test('server / id', async () => {
     let res, port = 2000 + Math.round(1000 * Math.random());
-    let server = createServer();
-    server.listen(port);
+    let server = createServer({port});
+    server.listen();
     options.port = port;
     res = await sendRequest('{"query":"PING"}');
     expect(res.result).toEqual(C.BITMAP_OK);
@@ -90,8 +90,8 @@ test('server / id', async () => {
 
 test('server / batch', async () => {
     let res, port = 2000 + Math.round(1000 * Math.random());
-    let server = createServer();
-    server.listen(port);
+    let server = createServer({port});
+    server.listen();
     options.port = port;
     res = await sendRequest('[{"query":"PING"},{"query":"a"}]');
     expect(res[0].result).toEqual(C.BITMAP_OK);

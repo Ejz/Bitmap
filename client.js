@@ -2,11 +2,14 @@ const C = require('./constants');
 const http = require('http');
 const readline = require('readline');
 
-function createClient(auth) {
+function createClient(settings = {}) {
+    settings.port = settings.port || C.SERVER_PORT;
+    settings.host = settings.host || C.SERVER_HOST;
     return {
-        auth,
-        connected: false,
         options: {
+            auth: settings.auth,
+            port: settings.port,
+            hostname: settings.host,
             path: '/',
             method: 'POST',
             headers: {
@@ -53,11 +56,9 @@ function createClient(auth) {
                 req.end();
             });
         },
-        connect(port = C.SERVER_PORT, host = C.SERVER_HOST) {
-            this.options.port = port;
-            this.options.hostname = host;
-            if (this.auth) {
-                this.options.headers['Authorization'] = auth;
+        connect() {
+            if (this.options.auth) {
+                this.options.headers['Authorization'] = this.options.auth;
             }
             return new Promise((resolve, reject) => {
                 this.sendQuery('PING').then(resolve).catch(reject);

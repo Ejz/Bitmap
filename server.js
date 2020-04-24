@@ -3,8 +3,11 @@ const bitmap = require('./bitmap');
 const C = require('./constants');
 const _ = require('./helpers');
 
-function createServer(auth) {
+function createServer(settings = {}) {
+    settings.port = settings.port || C.SERVER_PORT;
+    settings.host = settings.host || C.SERVER_HOST;
     let server = http.createServer((req, res) => {
+        let {auth} = settings;
         res.setHeader('content-type', C.SERVER_CONTENT_TYPE);
         if (req.method != 'POST') {
             return res.end(JSON.stringify({error: C.SERVER_ERROR_INVALID_METHOD}));
@@ -49,11 +52,13 @@ function createServer(auth) {
             res.end(JSON.stringify(results));
         });
     });
-    let listen = server.listen.bind(server);
-    server.listen = (port = C.SERVER_PORT, host = C.SERVER_HOST) => {
-        return listen(port, host);
+    return {
+        server,
+        settings,
+        listen() {
+            this.server.listen(this.settings.port, this.settings.host);
+        },
     };
-    return server;
 }
 
 module.exports = createServer;

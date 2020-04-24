@@ -3,7 +3,12 @@ const readline = require('readline');
 const createClient = require('../client');
 const _ = require('../helpers');
 
-let client = createClient();
+let argv = process.argv.slice(2);
+
+let client = createClient({
+    port: argv[0],
+    host: argv[1],
+});
 
 let source = __dirname + '/airports.csv';
 
@@ -46,7 +51,7 @@ function readCsv() {
 }
 
 (async () => {
-    let [err] = await _.to(client.connect(...process.argv.slice(2)));
+    let [err] = await _.to(client.connect());
     if (err) {
         console.log(String(err));
         process.exit();

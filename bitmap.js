@@ -432,16 +432,6 @@ function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys, 
         ret.ids.push(next.value);
         limit--;
     }
-    if (foreignKeys.length) {
-        foreignKeys = _.unique(foreignKeys);
-        foreignKeys = foreignKeys.map(fk => [fk, fields[fk].id2fk]);
-        ret.records = ret.ids.map(id => {
-            let r = {id};
-            foreignKeys.forEach(fk => r[fk[0]] = fk[1][id]);
-            return r;
-        });
-        delete ret.ids;
-    }
     if (withCursor) {
         ret.cursor = null;
         if (ret.ids.length < ret.total) {
@@ -458,6 +448,16 @@ function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys, 
             };
             ret.cursor = cursor;
         }
+    }
+    if (foreignKeys.length) {
+        foreignKeys = _.unique(foreignKeys);
+        foreignKeys = foreignKeys.map(fk => [fk, fields[fk].id2fk]);
+        ret.records = ret.ids.map(id => {
+            let r = {id};
+            foreignKeys.forEach(fk => r[fk[0]] = fk[1][id]);
+            return r;
+        });
+        delete ret.ids;
     }
     return ret;
 }

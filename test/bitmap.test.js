@@ -375,3 +375,11 @@ test('bitmap / SEARCH / 5', () => {
     }
     bitmap.execute('drop index');
 });
+
+test('bitmap / SEARCH / 6', () => {
+    bitmap.execute('create parent');
+    bitmap.execute('create child fields parent_id foreignkey references parent');
+    bitmap.execute('search child \'*\' withcursor withforeignkeys "parent_id"');
+    bitmap.execute('drop child');
+    bitmap.execute('drop parent');
+});

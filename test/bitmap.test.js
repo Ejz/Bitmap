@@ -288,6 +288,23 @@ test('bitmap / CURSOR / 4', async () => {
     bitmap.execute('drop index');
 });
 
+test('bitmap / CURSOR / 5', async () => {
+    bitmap.execute('create index fields a integer min 1 max 5');
+    bitmap.execute('add index 1 values a 5');
+    bitmap.execute('add index 2 values a 4');
+    bitmap.execute('add index 3 values a 3');
+    bitmap.execute('add index 4 values a 2');
+    bitmap.execute('add index 5 values a 1');
+    let {cursor, ids} = bitmap.execute('search index \'*\' sortby a withcursor limit 2');
+    expect(ids).toEqual([5, 4]);
+    let r1 = bitmap.execute('cursor ' + cursor);
+    expect(r1.ids).toEqual([3, 2]);
+    let r2 = bitmap.execute('cursor ' + cursor);
+    expect(r2.ids).toEqual([1]);
+    expect(r2.cursor).toEqual(null);
+    bitmap.execute('drop index');
+});
+
 test('bitmap / SEARCH / WITHFOREIGNKEYS', () => {
     bitmap.execute('create parent');
     bitmap.execute('create child fields parent foreignkey references parent');

@@ -426,12 +426,11 @@ function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys, 
     } else {
         iterator = bitmap.iterator();
     }
-    for (let id of (limit > 0 ? iterator : [])) {
-        ret.ids.push(id);
+    while (limit > 0) {
+        let next = iterator.next();
+        if (next.done) break;
+        ret.ids.push(next.value);
         limit--;
-        if (!limit) {
-            break;
-        }
     }
     if (foreignKeys.length) {
         foreignKeys = _.unique(foreignKeys);
@@ -470,12 +469,11 @@ function CURSOR({cursor}) {
     let {foreignKeys, iterator, total, offset, timeout, limit} = cursors[cursor];
     clearTimeout(cursors[cursor].tid);
     let ret = {total: total, ids: []};
-    for (let id of iterator) {
-        ret.ids.push(id);
+    while (limit > 0) {
+        let next = iterator.next();
+        if (next.done) break;
+        ret.ids.push(next.value);
         limit--;
-        if (!limit) {
-            break;
-        }
     }
     if (offset + ret.ids.length < total) {
         cursors[cursor].tid = setTimeout(deleteCursor, timeout * 1000, cursor);

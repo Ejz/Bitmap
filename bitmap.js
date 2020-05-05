@@ -61,7 +61,7 @@ function CREATE({index, fields}) {
     if (storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_EXISTS, {index});
     }
-    for (let [, field] of Object.entries(fields)) {
+    for (let [name, field] of Object.entries(fields)) {
         let {type, prefixSearch, references} = field;
         if (!C.IS_NUMERIC(type)) {
             field.bitmaps = Object.create(null);
@@ -70,8 +70,8 @@ function CREATE({index, fields}) {
                     throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index: references});
                 }
                 if (storage[references].links[index]) {
-                    delete storage[references].links[index];
-                    throw new C.BitmapError(C.BITMAP_ERROR_MULTIPLE_FOREIGN_KEYS);
+                    let ctx = {index, references, field: name};
+                    throw new C.BitmapError(C.BITMAP_ERROR_MULTIPLE_FOREIGN_KEYS, ctx);
                 }
                 storage[references].links[index] = field;
                 field.id2fk = Object.create(null);
@@ -99,22 +99,24 @@ function DROP({index, fromTruncate}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
-    let create = SHOWCREATE({index});
+    let create = fromTruncate ? [SHOWCREATE({index})] : [];
     Object.entries(storage).filter(([, v]) => {
         return Object.entries(v.fields).filter(
             ([, f]) => f.type == C.TYPES.FOREIGNKEY && f.references == index
         ).length;
-    }).forEach(([k]) => DROP({index: k}));
+    }).forEach(([k]) => {
+        let res = DROP({index: k, fromTruncate});
+        if (fromTruncate) {
+            create = create.concat(res);
+        }
+    });
     storage[index].bitmaps.forEach(b => b.clear());
     delete storage[index];
-    if (fromTruncate) {
-        execute(create);
-    }
-    return C.BITMAP_OK;
+    return fromTruncate ? create : C.BITMAP_OK;
 }
 
 function TRUNCATE({index}) {
-    return DROP({index, fromTruncate: true});
+    DROP({index, fromTruncate: true}).forEach(execute);
 }
 
 function RENAME({index, name}) {
@@ -506,6 +508,8 @@ function SHOWCREATE({index}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
+    let d2s = d => d.toISOString().replace(/T.*$/, '');
+    let dt2s = d => d.toISOString().replace(/\..*$/, '').replace('T', ' ');
     let fields = Object.entries(storage[index].fields).map(([name, field]) => {
         let cast, ret = ['"' + name + '"', field.type];
         switch (field.type) {
@@ -516,19 +520,19 @@ function SHOWCREATE({index}) {
                 ret.push('MIN', field.min, 'MAX', field.max);
                 break;
             case C.TYPES.DATE:
-                cast = d => new Date(d * 864E5).toISOString().replace(/T.*$/, '');
-                ret.push('MIN', cast(field.min), 'MAX', cast(field.max));
+                ret.push('MIN', "'" + d2s(new Date(field.min * 864E5)) + "'");
+                ret.push('MAX', "'" + d2s(new Date(field.max * 864E5)) + "'");
                 break;
             case C.TYPES.DATETIME:
-                cast = d => new Date(d * 1E3).toISOString().replace(/\..*$/, '');
-                ret.push('MIN', cast(field.min), 'MAX', cast(field.max));
+                ret.push('MIN', "'" + dt2s(new Date(field.min * 1E3)) + "'");
+                ret.push('MAX', "'" + dt2s(new Date(field.max * 1E3)) + "'");
                 break;
             case C.TYPES.FULLTEXT:
                 field.noStopwords && ret.push('NOSTOPWORDS');
                 field.prefixSearch && ret.push('PREFIXSEARCH');
                 break;
             case C.TYPES.FOREIGNKEY:
-                ret.push('REFERENCES', '"' + ret.references + '"');
+                ret.push('REFERENCES', '"' + field.references + '"');
                 break;
         }
         return ret.join(' ');

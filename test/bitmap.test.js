@@ -58,7 +58,7 @@ test('bitmap / STAT', () => {
     bitmap.execute('drop a');
 });
 
-test.only('bitmap / ADD', () => {
+test('bitmap / ADD', () => {
     let r1 = bitmap.execute(`
         create a fields
         i integer min 1 max 2
@@ -384,7 +384,7 @@ test('bitmap / SEARCH / 6', () => {
     bitmap.execute('drop parent');
 });
 
-test('bitmap / TRUNCATE', () => {
+test('bitmap / TRUNCATE / 1', () => {
     bitmap.execute('create index');
     bitmap.execute('add index 1');
     bitmap.execute('add index 2');
@@ -393,4 +393,15 @@ test('bitmap / TRUNCATE', () => {
     let res = bitmap.execute('search index \'*\'');
     expect(res.total).toEqual(1);
     bitmap.execute('drop index');
+});
+
+test('bitmap / TRUNCATE / 2', () => {
+    bitmap.execute('create p');
+    bitmap.execute('create c fields p foreignkey references p');
+    bitmap.execute('add p 1');
+    bitmap.execute('add c 1 values p 1');
+    bitmap.execute('truncate p');
+    let res = bitmap.execute('search c \'*\'');
+    expect(res.total).toEqual(0);
+    bitmap.execute('drop p');
 });

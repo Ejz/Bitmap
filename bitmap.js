@@ -100,16 +100,21 @@ function DROP({index, fromTruncate}) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
     let create = fromTruncate ? [SHOWCREATE({index})] : [];
-    Object.entries(storage).filter(([, v]) => {
-        return Object.entries(v.fields).filter(
+    for (let [k, {fields, links}] of Object.entries(storage)) {
+        let isChild = Object.entries(fields).filter(
             ([, f]) => f.type == C.TYPES.FOREIGNKEY && f.references == index
         ).length;
-    }).forEach(([k]) => {
-        let res = DROP({index: k, fromTruncate});
-        if (fromTruncate) {
-            create = create.concat(res);
+        if (isChild) {
+            let res = DROP({index: k, fromTruncate});
+            if (fromTruncate) {
+                create = create.concat(res);
+            }
         }
-    });
+        let isParent = links[index];
+        if (isParent) {
+            delete links[index];
+        }
+    }
     storage[index].bitmaps.forEach(b => b.clear());
     delete storage[index];
     return fromTruncate ? create : C.BITMAP_OK;

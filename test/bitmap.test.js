@@ -405,3 +405,10 @@ test('bitmap / TRUNCATE / 2', () => {
     expect(res.total).toEqual(0);
     bitmap.execute('drop p');
 });
+
+test('bitmap / TRUNCATE / 3', () => {
+    bitmap.execute('create p');
+    bitmap.execute('create c fields p foreignkey references p');
+    bitmap.execute('truncate c');
+    bitmap.execute('drop p');
+});

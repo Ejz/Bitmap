@@ -7,6 +7,7 @@ let TYPES = Object.entries(C.TYPES).map(([k, v]) => v);
 let KW = [
     'PING', 'CREATE', 'DROP', 'LIST', 'ADD', 'STAT', 'RENAME',
     'SEARCH', 'CURSOR',
+    'TRUNCATE',
     'SHOWCREATE', 'SLOWQUERYLOG',
     'FIELDS', 'VALUES',
     'NOSTOPWORDS', 'PREFIXSEARCH',
@@ -154,6 +155,7 @@ class CommandParser {
                 this.expectEnd();
                 return this.command;
             case 'DROP':
+            case 'TRUNCATE':
                 this.command.index = this.expectIdent();
                 this.expectEnd();
                 return this.command;
@@ -177,9 +179,9 @@ class CommandParser {
                     }
                     let type = this.expectFieldType();
                     let field = {type};
-                    if (C.IS_INTEGER(field.type)) {
-                        field.min = C.INTEGER_DEFAULT_MIN;
-                        field.max = C.INTEGER_DEFAULT_MAX;
+                    if (C.IS_NUMERIC(field.type)) {
+                        field.min = C.NUMERIC_MIN[field.type];
+                        field.max = C.NUMERIC_MAX[field.type];
                         w: while (true) {
                             switch (this.tryKw('MIN', 'MAX')) {
                                 case 'MIN':
@@ -193,7 +195,8 @@ class CommandParser {
                             }
                         }
                         if (field.min > field.max) {
-                            throw new C.CommandParserError(C.COMMAND_PARSER_ERROR_MIN_MAX);
+                            let ctx = {min: field.min, max: field.max, field: ident};
+                            throw new C.CommandParserError(C.COMMAND_PARSER_ERROR_MIN_MAX, ctx);
                         }
                     } else if (field.type == C.TYPES.ARRAY) {
                         field.separator = ',';

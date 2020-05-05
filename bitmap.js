@@ -59,15 +59,15 @@ function LIST() {
 
 function CREATE({index, fields}) {
     if (storage[index]) {
-        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_EXISTS);
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_EXISTS, {index});
     }
     for (let [, field] of Object.entries(fields)) {
         let {type, prefixSearch, references} = field;
-        if (!C.IS_INTEGER(type)) {
+        if (!C.IS_NUMERIC(type)) {
             field.bitmaps = Object.create(null);
             if (type == C.TYPES.FOREIGNKEY) {
                 if (!storage[references]) {
-                    throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
+                    throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index: references});
                 }
                 if (storage[references].links[index]) {
                     delete storage[references].links[index];
@@ -88,17 +88,18 @@ function CREATE({index, fields}) {
     storage[index].ids = storage[index].newBitmap();
     let nb = storage[index].newBitmap.bind(storage[index]);
     Object.entries(storage[index].fields).forEach(([, f]) => {
-        if (C.IS_INTEGER(f.type)) {
+        if (C.IS_NUMERIC(f.type)) {
             f.bsi = new BSI(f.min, f.max, nb);
         }
     });
     return C.BITMAP_OK;
 }
 
-function DROP({index}) {
+function DROP({index, fromTruncate}) {
     if (!storage[index]) {
-        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
+    let create = SHOWCREATE({index});
     Object.entries(storage).filter(([, v]) => {
         return Object.entries(v.fields).filter(
             ([, f]) => f.type == C.TYPES.FOREIGNKEY && f.references == index
@@ -106,15 +107,22 @@ function DROP({index}) {
     }).forEach(([k]) => DROP({index: k}));
     storage[index].bitmaps.forEach(b => b.clear());
     delete storage[index];
+    if (fromTruncate) {
+        execute(create);
+    }
     return C.BITMAP_OK;
+}
+
+function TRUNCATE({index}) {
+    return DROP({index, fromTruncate: true});
 }
 
 function RENAME({index, name}) {
     if (!storage[index]) {
-        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
     if (storage[name]) {
-        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_EXISTS);
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_EXISTS, {index: name});
     }
     storage[name] = storage[index];
     delete storage[index];
@@ -142,7 +150,7 @@ function STAT({index, field, limit}) {
         return reply;
     }
     if (!storage[index]) {
-        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
     let {bitmaps, ids, fields} = storage[index];
     if (!field) {
@@ -158,7 +166,7 @@ function STAT({index, field, limit}) {
     if (!fields[field]) {
         throw new C.BitmapError(C.BITMAP_ERROR_FIELD_NOT_EXISTS);
     }
-    if (C.IS_INTEGER(fields[field].type)) {
+    if (C.IS_NUMERIC(fields[field].type)) {
         throw new C.BitmapError(C.BITMAP_ERROR_STAT_ON_INTEGER_TYPE);
     }
     bitmaps = fields[field].bitmaps;
@@ -175,7 +183,7 @@ function STAT({index, field, limit}) {
 
 function ADD({index, id, values}) {
     if (!storage[index]) {
-        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
     let {ids, fields} = storage[index];
     if (ids.has(id)) {
@@ -299,7 +307,7 @@ function ADD({index, id, values}) {
 
 function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys, withCursor}) {
     if (!storage[index]) {
-        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
     let {fields, ids} = storage[index];
     if (sortby && (!fields[sortby] || !fields[sortby].bsi)) {
@@ -496,7 +504,7 @@ function CURSOR({cursor}) {
 
 function SHOWCREATE({index}) {
     if (!storage[index]) {
-        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
     let fields = Object.entries(storage[index].fields).map(([name, field]) => {
         let cast, ret = ['"' + name + '"', field.type];
@@ -544,7 +552,7 @@ function SLOWQUERYLOG({index}) {
         }, Object.create(null));
     }
     if (!storage[index]) {
-        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS);
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
     return storage[index].slowQueryLog;
 }
@@ -571,6 +579,7 @@ module.exports = {
     LIST,
     CREATE,
     DROP,
+    TRUNCATE,
     RENAME,
     STAT,
     ADD,

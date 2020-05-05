@@ -58,7 +58,7 @@ test('bitmap / STAT', () => {
     bitmap.execute('drop a');
 });
 
-test('bitmap / ADD', () => {
+test.only('bitmap / ADD', () => {
     let r1 = bitmap.execute(`
         create a fields
         i integer min 1 max 2
@@ -76,7 +76,7 @@ test('bitmap / ADD', () => {
     let r4 = bitmap.execute('add a 3 values s 1');
     expect(r4).toEqual(C.BITMAP_OK);
     let r5 = bitmap.execute('stat a');
-    let used_bitmaps = 1 + 2 + 33 + 33 + 1 + 1 + 2;
+    let used_bitmaps = 1 + 2 + (33 - 16) + 33 + 1 + 1 + 2;
     expect(r5).toEqual({size: 3, id_minimum: 1, id_maximum: 3, used_bitmaps, used_bits: r5.used_bits});
     bitmap.execute('drop a');
 });
@@ -382,4 +382,15 @@ test('bitmap / SEARCH / 6', () => {
     bitmap.execute('search child \'*\' withcursor withforeignkeys "parent_id"');
     bitmap.execute('drop child');
     bitmap.execute('drop parent');
+});
+
+test('bitmap / TRUNCATE', () => {
+    bitmap.execute('create index');
+    bitmap.execute('add index 1');
+    bitmap.execute('add index 2');
+    bitmap.execute('truncate index');
+    bitmap.execute('add index 1');
+    let res = bitmap.execute('search index \'*\'');
+    expect(res.total).toEqual(1);
+    bitmap.execute('drop index');
 });

@@ -122,6 +122,7 @@ function DROP({index, fromTruncate}) {
 
 function TRUNCATE({index}) {
     DROP({index, fromTruncate: true}).forEach(execute);
+    return C.BITMAP_OK;
 }
 
 function RENAME({index, name}) {

@@ -1,20 +1,7 @@
-const snowball = require('node-snowball');
-const sprintf = require('util').format;
-const stopwords = require('./stopwords');
-
-function isString(f) {
-    return typeof(f) == 'string';
-}
-
-function isFunction(f) {
-    return typeof(f) == 'function';
-}
-
-let isArray = Array.isArray;
-
-function isObject(o) {
-    return (!!o) && (o.constructor === Object);
-}
+let snowball = require('node-snowball');
+let sprintf = require('util').format;
+let stopwords = require('./stopwords');
+let _ = require('ejz-helpers');
 
 function isNumeric(i) {
     let n = i !== '' ? Number(i) : NaN;
@@ -25,27 +12,6 @@ function rand(min = 0, max = Number.MAX_SAFE_INTEGER) {
     min = Number(min);
     max = Number(max);
     return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function to(p) {
-    p = p.then ? p : Promise.resolve(p);
-    return p.then(data => [null, data]).catch(err => [err, null]);
-}
-
-function nsplit(str) {
-    return str.split(/\s*\n\s*/g).map(_ => _.trim()).filter(Boolean);
-}
-
-function unique(array) {
-    return array.filter((v, i, a) => a.indexOf(v) == i);
-}
-
-function filter(obj, f) {
-    if (isArray(obj)) {
-        return obj.filter(f);
-    }
-    let reducer = (res, key) => (res[key] = obj[key], res);
-    return Object.keys(obj).filter(k => f(k, obj[k])).reduce(reducer, {});
 }
 
 function toDateTimeInteger(v) {
@@ -80,7 +46,7 @@ function wordSplit(sentence, prefixSearch) {
 }
 
 function stem(sentence, noStopwords) {
-    let words = isArray(sentence) ? sentence : wordSplit(sentence);
+    let words = _.isArray(sentence) ? sentence : wordSplit(sentence);
     if (noStopwords) {
         words = words.filter(word => !stopwords[word]);
     }
@@ -112,17 +78,10 @@ function triplet(word) {
 }
 
 module.exports = {
+    ..._,
     sprintf,
-    isString,
-    isFunction,
-    isArray,
-    isObject,
     isNumeric,
     rand,
-    to,
-    nsplit,
-    unique,
-    filter,
     toDateTimeInteger,
     toDateInteger,
     toInteger,

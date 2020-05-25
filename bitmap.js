@@ -322,12 +322,14 @@ function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys, 
         let e = fields[sortby] ? C.BITMAP_ERROR_FIELD_NOT_SORTABLE : C.BITMAP_ERROR_FIELD_NOT_EXISTS;
         throw new C.BitmapError(e);
     }
-    for (let fk of (foreignKeys || [])) {
+    foreignKeys = _.unique(foreignKeys || []);
+    for (let fk of foreignKeys) {
         if (!fields[fk] || !fields[fk].id2fk) {
             let e = fields[fk] ? C.BITMAP_ERROR_FIELD_NOT_FOREIGN_KEY : C.BITMAP_ERROR_FIELD_NOT_EXISTS;
             throw new C.BitmapError(e);
         }
     }
+    foreignKeys = foreignKeys.map(fk => [fk, fields[fk].id2fk]);
     let queryParser = new QueryParser();
     if (terms === undefined) {
         let tokens = queryParser.tokenize(query);
@@ -466,8 +468,6 @@ function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys, 
         }
     }
     if (foreignKeys.length) {
-        foreignKeys = _.unique(foreignKeys);
-        foreignKeys = foreignKeys.map(fk => [fk, fields[fk].id2fk]);
         ret.records = ret.ids.map(id => {
             let r = {id};
             foreignKeys.forEach(fk => r[fk[0]] = fk[1][id]);

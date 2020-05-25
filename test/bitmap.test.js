@@ -305,6 +305,20 @@ test('bitmap / CURSOR / 5', async () => {
     bitmap.execute('drop index');
 });
 
+test('bitmap / CURSOR / 6', async () => {
+    bitmap.execute('create parent');
+    bitmap.execute('create child fields parent foreignkey references parent');
+    bitmap.execute('add parent 1');
+    bitmap.execute('add child 1 values parent 1');
+    bitmap.execute('add child 2 values parent 1');
+    let {cursor, records} = bitmap.execute('search child \'*\' withforeignkeys parent withcursor limit 1');
+    expect(records).toEqual([{id: 1, parent: 1}]);
+    let res = bitmap.execute('cursor ' + cursor);
+    expect(res.records).toEqual([{id: 2, parent: 1}]);
+    bitmap.execute('drop child');
+    bitmap.execute('drop parent');
+});
+
 test('bitmap / SEARCH / WITHFOREIGNKEYS', () => {
     bitmap.execute('create parent');
     bitmap.execute('create child fields parent foreignkey references parent');

@@ -1,7 +1,6 @@
 {
-    "name": "bitmap",
+    "name": "ejz-bitmap",
     "version": "1.0.0",
-    "private": true,
     "description": "",
     "main": "index.js",
     "scripts": {
@@ -11,6 +10,7 @@
     "author": "",
     "dependencies": {
         "cheerio": "^1.0.0-rc.3",
+        "ejz-helpers": "^1.0.1",
         "node-snowball": "^0.4.0",
         "roaring": "^1.0.5"
     },

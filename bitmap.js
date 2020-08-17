@@ -7,6 +7,10 @@ const QueryParser = require('./QueryParser');
 
 let storage = Object.create(null);
 let cursors = Object.create(null);
+let queued = {};
+let syncTimer = null;
+let syncInterval = 1000;
+let syncTimeout = 300;
 
 let isUnique = arr => arr.length == _.unique(arr).length;
 
@@ -92,6 +96,7 @@ function CREATE({index, fields}) {
             f.bsi = new BSI(f.min, f.max, nb);
         }
     });
+    queued[index] = {};
     return C.BITMAP_OK;
 }
 
@@ -117,6 +122,7 @@ function DROP({index, fromTruncate}) {
     }
     storage[index].bitmaps.forEach(b => b.clear());
     delete storage[index];
+    delete queued[index];
     return fromTruncate ? create : C.BITMAP_OK;
 }
 
@@ -169,6 +175,7 @@ function STAT({index, field, limit}) {
             id_maximum: size > 0 ? ids.maximum() : 0,
             used_bitmaps: bitmaps.length,
             used_bits: bitmaps.reduce((acc, v) => acc + v.size, 0),
+            queued: Object.keys(queued[index]).length,
         };
     }
     if (!fields[field]) {
@@ -189,9 +196,17 @@ function STAT({index, field, limit}) {
     return ret;
 }
 
+function INSERT(...args) {
+    return ADD(...args);
+}
+
 function ADD({index, id, values}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
+    }
+    if (queued[index][id]) {
+        queued[index][id].push({action: 'ADD', index, id, values});
+        return C.BITMAP_QUEUED;
     }
     let {ids, fields} = storage[index];
     if (ids.has(id)) {
@@ -311,6 +326,24 @@ function ADD({index, id, values}) {
     }
     ids.add(id);
     return C.BITMAP_OK;
+}
+
+function DELETE({index, id, sync}) {
+    if (!storage[index]) {
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
+    }
+    let {ids, bitmaps} = storage[index];
+    if (!ids.has(id)) {
+        throw new C.BitmapError(C.BITMAP_ERROR_ID_NOT_EXISTS, {index, id});
+    }
+    if (sync) {
+        bitmaps.forEach(bitmap => bitmap.delete(id));
+        return C.BITMAP_OK;
+    }
+    queued[index][id] = queued[index][id] || [];
+    queued[index][id].push({action: 'DELETE', index, id, sync: true});
+    startSyncTimer();
+    return C.BITMAP_QUEUED;
 }
 
 function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys, withCursor}) {
@@ -583,6 +616,45 @@ function deleteCursor(cursor) {
     delete cursors[cursor];
 }
 
+function startSyncTimer() {
+    if (!syncTimer) {
+        syncTimer = setTimeout(syncProcedure, syncInterval);
+    }
+}
+
+function syncProcedure() {
+    syncTimer = null;
+    let start = Number(new Date());
+    l:
+    for (let [index, ids] of Object.entries(queued)) {
+        for (let [id, commands] of Object.entries(ids)) {
+            let command = commands.shift();
+            if (!commands.length) {
+                delete queued[index][id];
+            }
+            let {action} = command;
+            delete command.action;
+            let res;
+            try {
+                res = module.exports[action](command);
+                res = [true, JSON.stringify(res)];
+            } catch (e) {
+                res = [false, String(e)];
+            }
+            let now = new Date().toISOString().split('.').shift().replace('T', ' ');
+            command = JSON.stringify(command);
+            if (Number(new Date()) > start + syncTimeout) {
+                break l;
+            }
+        }
+    }
+    let left = 0;
+    for (let [, ids] of Object.entries(queued)) {
+        left += Object.keys(ids).length;
+    }
+    left && startSyncTimer();
+}
+
 module.exports = {
     execute,
     PING,
@@ -593,6 +665,8 @@ module.exports = {
     RENAME,
     STAT,
     ADD,
+    INSERT,
+    DELETE,
     SEARCH,
     CURSOR,
     SHOWCREATE,

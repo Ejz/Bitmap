@@ -76,12 +76,17 @@ function BITMAP_ERROR_INDEX_NOT_EXISTS({index}) {
     return 'Index "' + index + '" does not exist';
 }
 
+function BITMAP_ERROR_ID_NOT_EXISTS({index, id}) {
+    return 'ID ' + id + ' for index "' + index + '" does not exist';
+}
+
 function BITMAP_ERROR_MULTIPLE_FOREIGN_KEYS({index, references, field}) {
     return 'Index "' + index + '": field "' + field + '" references "' + references + '", that already has corresponding constraint';
 }
 
 let BITMAP = {
     BITMAP_OK: 'OK',
+    BITMAP_QUEUED: 'QUEUED',
     BITMAP_ID: 'id',
     BITMAP_ERROR_UNKNOWN_COMMAND: 'BITMAP_ERROR_UNKNOWN_COMMAND',
     BITMAP_ERROR_INDEX_EXISTS,

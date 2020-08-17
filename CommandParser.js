@@ -6,6 +6,7 @@ let TYPES = Object.entries(C.TYPES).map(([k, v]) => v);
 
 let KW = [
     'PING', 'CREATE', 'DROP', 'LIST', 'ADD', 'STAT', 'RENAME',
+    'INSERT', 'DELETE',
     'SEARCH', 'CURSOR',
     'TRUNCATE',
     'SHOWCREATE', 'SLOWQUERYLOG',
@@ -128,6 +129,7 @@ class CommandParser {
                 this.command.index = this.expectIdent();
                 this.expectEnd();
                 return this.command;
+            case 'INSERT':
             case 'ADD':
                 this.command.index = this.expectIdent();
                 this.command.id = this.expectPositiveInteger();
@@ -152,6 +154,11 @@ class CommandParser {
                         this.command.values[ident] = v;
                     }
                 }
+                this.expectEnd();
+                return this.command;
+            case 'DELETE':
+                this.command.index = this.expectIdent();
+                this.command.id = this.expectPositiveInteger();
                 this.expectEnd();
                 return this.command;
             case 'DROP':

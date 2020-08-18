@@ -6,7 +6,7 @@ let TYPES = Object.entries(C.TYPES).map(([k, v]) => v);
 
 let KW = [
     'PING', 'CREATE', 'DROP', 'LIST', 'ADD', 'STAT', 'RENAME',
-    'INSERT', 'DELETE',
+    'INSERT', 'DELETE', 'DELETEALL',
     'SEARCH', 'CURSOR',
     'TRUNCATE',
     'SHOWCREATE', 'SLOWQUERYLOG',
@@ -159,6 +159,13 @@ class CommandParser {
             case 'DELETE':
                 this.command.index = this.expectIdent();
                 this.command.id = this.expectPositiveInteger();
+                this.command.withForeignKeys = !!this.tryKw('WITHFOREIGNKEYS');
+                this.expectEnd();
+                return this.command;
+            case 'DELETEALL':
+                this.command.index = this.expectIdent();
+                this.command.query = this.expectValue();
+                this.command.withForeignKeys = !!this.tryKw('WITHFOREIGNKEYS');
                 this.expectEnd();
                 return this.command;
             case 'DROP':

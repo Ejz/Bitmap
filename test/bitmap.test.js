@@ -443,3 +443,47 @@ test('bitmap / DELETE / 1', async () => {
     expect(res.total).toEqual(2);
     bitmap.execute('drop a');
 });
+
+test('bitmap / DELETE / 2', async () => {
+    bitmap.execute('create p');
+    bitmap.execute('create c fields p foreignkey references p');
+    bitmap.execute('insert p 1');
+    bitmap.execute('insert p 2');
+    bitmap.execute('insert c 1 values p 1');
+    bitmap.execute('insert c 2 values p 2');
+    bitmap.execute('delete c 2');
+    await new Promise(r => setTimeout(r, 2000));
+    let {ids} = bitmap.execute('search p \'@@c:(*)\'');
+    expect(ids).toEqual([1]);
+    bitmap.execute('drop p');
+});
+
+test('bitmap / DELETEALL / 1', async () => {
+    bitmap.execute('create a');
+    bitmap.execute('insert a 1');
+    bitmap.execute('insert a 2');
+    bitmap.execute('insert a 3');
+    bitmap.execute('insert a 10');
+    bitmap.execute('deleteall a \'@id:(2|3)\'');
+    await new Promise(r => setTimeout(r, 2000));
+    let {ids} = bitmap.execute('search a \'*\'');
+    expect(ids).toEqual([1, 10]);
+    bitmap.execute('drop a');
+});
+
+test('bitmap / DELETEALL / 2', async () => {
+    bitmap.execute('create a');
+    bitmap.execute('create b fields a foreignkey references a');
+    bitmap.execute('create c fields b foreignkey references b');
+    bitmap.execute('insert a 1');
+    bitmap.execute('insert a 2');
+    bitmap.execute('insert b 1 values a 1');
+    bitmap.execute('insert b 2 values a 2');
+    bitmap.execute('insert c 1 values b 1');
+    bitmap.execute('insert c 2 values b 2');
+    bitmap.execute('deleteall a \'@id:1\' withforeignkeys');
+    await new Promise(r => setTimeout(r, 2000));
+    let {ids} = bitmap.execute('search c \'*\'');
+    expect(ids).toEqual([2]);
+    bitmap.execute('drop a');
+});

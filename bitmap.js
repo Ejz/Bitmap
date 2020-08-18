@@ -73,10 +73,10 @@ function CREATE({index, fields}) {
                 if (!storage[references]) {
                     throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index: references});
                 }
-                if (storage[references].links[index]) {
-                    let ctx = {index, references, field: name};
-                    throw new C.BitmapError(C.BITMAP_ERROR_MULTIPLE_FOREIGN_KEYS, ctx);
-                }
+                // if (storage[references].links[index]) {
+                //     let ctx = {index, references, field: name};
+                //     throw new C.BitmapError(C.BITMAP_ERROR_MULTIPLE_FOREIGN_KEYS, ctx);
+                // }
                 storage[references].links[index] = field;
                 field.id2fk = Object.create(null);
             }
@@ -328,25 +328,54 @@ function ADD({index, id, values}) {
     return C.BITMAP_OK;
 }
 
-function DELETE({index, id, sync}) {
+function DELETE({index, id, withForeignKeys, sync}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
-    let {ids, bitmaps} = storage[index];
+    let {ids, bitmaps, fields, links} = storage[index];
     if (!ids.has(id)) {
         throw new C.BitmapError(C.BITMAP_ERROR_ID_NOT_EXISTS, {index, id});
     }
-    if (sync) {
-        bitmaps.forEach(bitmap => bitmap.delete(id));
-        return C.BITMAP_OK;
+    if (!sync) {
+        queued[index][id] = queued[index][id] || [];
+        queued[index][id].push({action: 'DELETE', index, id, withForeignKeys, sync: true});
+        startSyncTimer();
+        return C.BITMAP_QUEUED;
     }
-    queued[index][id] = queued[index][id] || [];
-    queued[index][id].push({action: 'DELETE', index, id, sync: true});
-    startSyncTimer();
+    bitmaps.forEach(bitmap => bitmap.delete(id));
+    for (let [, field] of Object.entries(fields)) {
+        if (field.id2fk) {
+            delete field.id2fk[id];
+        }
+    }
+    for (let child of Object.keys(withForeignKeys ? links : {})) {
+        let {fields} = storage[child];
+        let name = Object.keys(fields).find(f => fields[f].id2fk && fields[f].references == index);
+        DELETEALL({index: child, query: `@${name}:${id}`, withForeignKeys, sync});
+    }
+    return C.BITMAP_OK;
+}
+
+function DELETEALL({index, query, withForeignKeys, sync}) {
+    let iterator = SEARCH({index, query, returnIterator: true});
+    for (let id of iterator) {
+        DELETE({index, id, withForeignKeys, sync});
+    }
     return C.BITMAP_QUEUED;
 }
 
-function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys, withCursor}) {
+function SEARCH({
+    index,
+    query,
+    limit,
+    terms,
+    parent,
+    sortby,
+    desc,
+    foreignKeys,
+    withCursor,
+    returnIterator,
+}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
@@ -476,6 +505,9 @@ function SEARCH({index, query, limit, terms, parent, sortby, desc, foreignKeys, 
         iterator = fields[sortby].bsi.sort(bitmap, !desc);
     } else {
         iterator = bitmap.iterator();
+    }
+    if (returnIterator) {
+        return iterator;
     }
     while (limit > 0) {
         let next = iterator.next();
@@ -667,6 +699,7 @@ module.exports = {
     ADD,
     INSERT,
     DELETE,
+    DELETEALL,
     SEARCH,
     CURSOR,
     SHOWCREATE,

@@ -49,7 +49,8 @@ test('bitmap / RENAME / 3', () => {
 
 test('bitmap / STAT', () => {
     let r1 = bitmap.execute('stat');
-    expect(/^memory_/.test(Object.keys(r1)[0])).toEqual(true);
+    expect(/^queued$/.test(Object.keys(r1)[0])).toEqual(true);
+    expect(/^memory_/.test(Object.keys(r1)[1])).toEqual(true);
     bitmap.execute('create a');
     bitmap.execute('add a 1');
     bitmap.execute('add a 3');
@@ -486,4 +487,45 @@ test('bitmap / DELETEALL / 2', async () => {
     let {ids} = bitmap.execute('search c \'*\'');
     expect(ids).toEqual([2]);
     bitmap.execute('drop a');
+});
+
+test('bitmap / REID / 1', async () => {
+    bitmap.execute('create a fields s1 string');
+    bitmap.execute('insert a 1 values s1 1');
+    bitmap.execute('insert a 2 values s1 2');
+    expect(bitmap.execute('search a \'@s1:1\'').ids).toEqual([1]);
+    bitmap.execute('reid a 1 2');
+    await new Promise(r => setTimeout(r, 2000));
+    expect(bitmap.execute('search a \'@s1:1\'').ids).toEqual([2]);
+    bitmap.execute('drop a');
+});
+
+test('bitmap / REID / 2', async () => {
+    bitmap.execute('create p');
+    bitmap.execute('create c fields p foreignkey references p');
+    bitmap.execute('insert p 1');
+    bitmap.execute('insert p 2');
+    bitmap.execute('insert c 1 values p 1');
+    bitmap.execute('insert c 2 values p 2');
+    expect(bitmap.execute('search p \'@@c:(@id:1)\'').ids).toEqual([1]);
+    expect(bitmap.execute('search p \'@@c:(@p:1)\'').ids).toEqual([1]);
+    bitmap.execute('reid c 1 2');
+    await new Promise(r => setTimeout(r, 2000));
+    expect(bitmap.execute('search p \'@@c:(@id:1)\'').ids).toEqual([2]);
+    expect(bitmap.execute('search p \'@@c:(@p:1)\'').ids).toEqual([1]);
+    bitmap.execute('drop p');
+});
+
+test('bitmap / REID / 3', async () => {
+    bitmap.execute('create p');
+    bitmap.execute('create c fields p foreignkey references p');
+    bitmap.execute('insert p 1');
+    bitmap.execute('insert p 2');
+    bitmap.execute('insert c 1 values p 1');
+    bitmap.execute('insert c 2 values p 2');
+    expect(bitmap.execute('search c \'@p:1\'').ids).toEqual([1]);
+    bitmap.execute('reid p 1 2');
+    await new Promise(r => setTimeout(r, 2000));
+    expect(bitmap.execute('search c \'@p:2\'').ids).toEqual([1]);
+    bitmap.execute('drop p');
 });

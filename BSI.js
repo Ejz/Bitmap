@@ -4,6 +4,8 @@ const _ = require('./helpers');
 
 class BSI {
     constructor(min, max, newBitmap) {
+        min = parseInt(min);
+        max = parseInt(max);
         min = min > max ? max : min;
         this.max = max - min;
         this.zval = min;

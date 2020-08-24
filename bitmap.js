@@ -19,6 +19,7 @@ var type2cast = {
     [C.TYPES.INTEGER]: 'toInteger',
     [C.TYPES.DATE]: 'toDateInteger',
     [C.TYPES.DATETIME]: 'toDateTimeInteger',
+    [C.TYPES.DECIMAL]: 'toDecimal',
 };
 
 function newBitmap() {
@@ -93,7 +94,13 @@ function CREATE({index, fields}) {
     storage[index].ids = storage[index].newBitmap();
     let nb = storage[index].newBitmap.bind(storage[index]);
     Object.entries(storage[index].fields).forEach(([, f]) => {
-        if (C.IS_NUMERIC(f.type)) {
+        if (f.type == C.TYPES.DECIMAL) {
+            f.precision = Math.min(5, f.precision || 2);
+            let e = 10 ** f.precision;
+            f.min = Math.floor(f.min * e) / e;
+            f.max = Math.floor(f.max * e) / e;
+            f.bsi = new BSI(f.min * e, f.max * e, nb);
+        } else if (C.IS_NUMERIC(f.type)) {
             f.bsi = new BSI(f.min, f.max, nb);
         }
     });
@@ -196,11 +203,11 @@ function STAT({index, field, limit}) {
     return ret;
 }
 
-function INSERT(...args) {
-    return ADD(...args);
+function ADD(...args) {
+    return INSERT(...args);
 }
 
-function ADD({index, id, values}) {
+function INSERT({index, id, values}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
@@ -254,6 +261,17 @@ function ADD({index, id, values}) {
                     throw new C.BitmapError(e, ctx);
                 }
                 break;
+            case C.TYPES.DECIMAL:
+                v = _.toDecimal(values[field]);
+                if (v === undefined) {
+                    throw new C.BitmapError(C.BITMAP_ERROR_EXPECT_DECIMAL);
+                }
+                if (v < min || max < v) {
+                    e = C.BITMAP_ERROR_OUT_OF_RANGE;
+                    ctx = {min, max, value: v, field};
+                    throw new C.BitmapError(e, ctx);
+                }
+                break;
             case C.TYPES.BOOLEAN:
                 v = _.toBoolean(values[field]);
                 break;
@@ -299,6 +317,9 @@ function ADD({index, id, values}) {
                 break;
             case C.TYPES.DATETIME:
                 field.bsi.add(id, value);
+                break;
+            case C.TYPES.DECIMAL:
+                field.bsi.add(id, Math.floor(value * (10 ** field.precision)));
                 break;
             case C.TYPES.BOOLEAN:
                 toBitmaps(value ? '1' : '0');
@@ -496,7 +517,7 @@ function SEARCH({
             min = ids.minimum();
             max = ids.maximum();
         } else if (fields[field]) {
-            ({type, bitmaps, min, max, bsi} = fields[field]);
+            ({type, bitmaps, min, max, bsi, precision} = fields[field]);
         } else {
             throw new C.BitmapError(C.BITMAP_ERROR_FIELD_NOT_EXISTS);
         }
@@ -521,6 +542,7 @@ function SEARCH({
             case C.TYPES.INTEGER:
             case C.TYPES.DATE:
             case C.TYPES.DATETIME:
+            case C.TYPES.DECIMAL:
                 if (_.isArray(value)) {
                     [excFrom, from, to, excTo] = value;
                     from = from in mm ? mm[from] : _[type2cast[type]](from);
@@ -534,6 +556,10 @@ function SEARCH({
                 }
                 if (from === undefined || to === undefined) {
                     return z;
+                }
+                if (type == C.TYPES.DECIMAL) {
+                    from = Math.floor(from * (10 ** precision));
+                    to = Math.floor(to * (10 ** precision));
                 }
                 from += excFrom ? 1 : 0;
                 to -= excTo ? 1 : 0;

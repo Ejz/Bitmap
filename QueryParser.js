@@ -27,6 +27,10 @@ let rules = {
         /^(\*)\s*/,
         m => true,
     ],
+    NUMERIC: [
+        /^([0-9]+\.[0-9]+)\s*/i,
+        m => m[1],
+    ],
     VALUE: [
         /^([a-zA-Z_0-9]+)\s*/i,
         m => m[1],
@@ -106,6 +110,10 @@ class QueryParser {
                 case 'EXIT_QUOTE_MODE':
                     token.type = 'VALUE';
                     token.value = value.join('').replace(/\\("|\\)/g, '$1');
+                    //
+                case 'NUMERIC':
+                    token.type = 'VALUE';
+                    //
                 case 'VALUE':
                     if (extoken && extoken.type == 'SPECIAL' && extoken.value == '~') {
                         extoken.type = 'VALUE';

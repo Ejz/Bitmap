@@ -28,6 +28,10 @@ function toInteger(v) {
     return isNumeric(v) ? Math.floor(Number(v)) : undefined;
 }
 
+function toDecimal(v) {
+    return isNumeric(v) ? Number(v) : undefined;
+}
+
 function toBoolean(v) {
     return ['true', '1', 'yes'].includes(String(v).toLowerCase());
 }
@@ -85,6 +89,7 @@ module.exports = {
     toDateTimeInteger,
     toDateInteger,
     toInteger,
+    toDecimal,
     toBoolean,
     wordSplit,
     stem,

@@ -32,7 +32,7 @@ test('CommandParser / tokenize / 3', () => {
 
 test('CommandParser / tokenize / errors', () => {
     let commands = [
-        '1.1',
+        '1.1a',
         '+-1',
         '100000000000000000000000000',
         '1E10',

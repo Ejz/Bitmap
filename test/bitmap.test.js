@@ -132,6 +132,9 @@ test('bitmap / SEARCH / 2', () => {
     let cases = {
         '@f1:[1]': [1],
         '@f1:[1,3]': [1, 2, 3],
+        '@f1:[1.0,3.0]': [1, 2, 3],
+        '@f1:[1.1,3.9]': [1, 2, 3],
+        '@f1:[ 1.1 , 3.9]': [1, 2, 3],
         '@f1:[(1,3]': [2, 3],
         '@f1:[1,3)]': [1, 2],
         '@f1:[ 1 , 3 ) ]': [1, 2],
@@ -152,7 +155,9 @@ test('bitmap / SEARCH / 2', () => {
         '@f1 < 5 & @id < 4': [1, 2, 3],
         '@id < 100': [1, 2, 3, 4, 5],
         '@id > 0': [1, 2, 3, 4, 5],
+        '@id : 1.4': [1],
         '@f1 < 5 & @f1 >= 2': [2, 3, 4],
+        '@f1 < 5.1 & @f1 >= 2.1': [2, 3, 4],
         '@f1:1': [1],
         '@f1:Max': [5],
         '@f1:Min': [1],
@@ -528,4 +533,26 @@ test('bitmap / REID / 3', async () => {
     await new Promise(r => setTimeout(r, 2000));
     expect(bitmap.execute('search c \'@p:2\'').ids).toEqual([1]);
     bitmap.execute('drop p');
+});
+
+test('bitmap / DECIMAL', () => {
+    bitmap.execute('create index fields f1 decimal min 1.101 max 5.05');
+    let strings = ['1.101', '1.2', '3.9', '4.5', '5.05'];
+    let id = 1;
+    for (let string of strings) {
+        string = _.rand(0, 1) ? string : '\'' + string + '\'';
+        bitmap.execute(`insert index ${id++} values f1 ${string}`);
+    }
+    let cases = {
+        '@f1:[1.10]': [1],
+        '@f1:[(1.1,]': [2, 3, 4, 5],
+        '@f1 >= 3.9': [3, 4, 5],
+        '@f1 <= 3.9': [1, 2, 3],
+        '@f1 < 3.9': [1, 2],
+    };
+    for (let [query, result] of Object.entries(cases)) {
+        let {ids} = bitmap.execute(`search index '${query}'`);
+        expect(ids).toEqual(result);
+    }
+    bitmap.execute('drop index');
 });

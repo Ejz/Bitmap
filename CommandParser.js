@@ -12,7 +12,7 @@ let KW = [
     'SHOWCREATE', 'SLOWQUERYLOG',
     'FIELDS', 'VALUES',
     'NOSTOPWORDS', 'PREFIXSEARCH',
-    'MIN', 'MAX',
+    'MIN', 'MAX', 'PRECISION',
     'SEPARATOR',
     'REFERENCES',
     'SORTBY', 'LIMIT',
@@ -42,6 +42,10 @@ let rules = {
         /^([+-]?\d+)(?:\s+|$)/i,
         m => _.toInteger(m[1]),
     ],
+    DECIMAL: [
+        /^([+-]?\d+\.\d+)(?:\s+|$)/i,
+        m => _.toDecimal(m[1]),
+    ],
     ENTER_QUOTE_MODE: [
         /^'/,
         function (m) {
@@ -69,6 +73,7 @@ class CommandParser {
         this.tokenizer = new Tokenizer(rules);
         this.integer2expect = {
            [C.TYPES.INTEGER]: this.expectInteger.bind(this),
+           [C.TYPES.DECIMAL]: this.expectDecimal.bind(this),
            [C.TYPES.DATE]: this.expectDate.bind(this),
            [C.TYPES.DATETIME]: this.expectDateTime.bind(this),
        };
@@ -88,6 +93,7 @@ class CommandParser {
                 case 'VALUE':
                     value.push(token.value);
                     return false;
+                case 'DECIMAL':
                 case 'INTEGER':
                     token.type = 'VALUE';
                     token.value = String(token.value);
@@ -210,6 +216,12 @@ class CommandParser {
                                 case 'MAX':
                                     field.max = this.integer2expect[field.type]();
                                     break;
+                                case 'PRECISION':
+                                    if (field.type != C.TYPES.DECIMAL) {
+                                        let ctx = {field: ident, type: field.type};
+                                        throw new C.CommandParserError(C.COMMAND_PARSER_ERROR_UNEXPECTED_PRECISION, ctx);
+                                    }
+                                    field.precision = this.expectPositiveInteger();
                                 default:
                                     break w;
                             }
@@ -363,6 +375,14 @@ class CommandParser {
         value = _.toDateTimeInteger(value);
         if (value === undefined) {
             throw new C.CommandParserError(C.COMMAND_PARSER_ERROR_EXPECT_DATETIME);
+        }
+        return value;
+    }
+    expectDecimal() {
+        let value = this.expectValue();
+        value = _.toDecimal(value);
+        if (value === undefined) {
+            throw new C.CommandParserError(C.COMMAND_PARSER_ERROR_EXPECT_DECIMAL);
         }
         return value;
     }

@@ -67,6 +67,11 @@ test('QueryParser / tokenize / 6', () => {
     expect(r2[0]).toEqual({type: 'VALUE', value: {value: 'goo_1', prefixSearch: true}});
 });
 
+test('QueryParser / tokenize / 7', () => {
+    let r1 = tokenize('1 1v 1.0');
+    expect(r1).toEqual([{type: 'VALUE', value: '1'}, {type: 'VALUE', value: '1v'}, {type: 'VALUE', value: '1.0'}]);
+});
+
 test('QueryParser / tokenize / errors', () => {
     let queries = [
         '@&',

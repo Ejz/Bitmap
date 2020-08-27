@@ -1,6 +1,6 @@
-const C = require('../constants');
-const _ = require('../helpers');
-const bitmap = require('../bitmap');
+var C = require('./constants');
+var _ = require('./helpers');
+var bitmap = require('./bitmap');
 
 test('bitmap / PING', () => {
     let r1 = bitmap.execute('ping');
@@ -554,5 +554,16 @@ test('bitmap / DECIMAL', () => {
         let {ids} = bitmap.execute(`search index '${query}'`);
         expect(ids).toEqual(result);
     }
+    bitmap.execute('drop index');
+});
+
+test('bitmap / aliases', () => {
+    bitmap.execute('create index fields foo_bar string alias fooBar i_i integer min 0 max 10 alias ii');
+    bitmap.execute(`insert index 1 values fooBar \'foo\' ii 1`);
+    bitmap.execute(`insert index 2 values fooBar \'bar\' ii 2`);
+    expect(bitmap.execute('search index \'@fooBar:foo\'').ids).toEqual([1]);
+    expect(bitmap.execute('search index \'@fooBar:bar\'').ids).toEqual([2]);
+    expect(bitmap.execute('search index \'*\' sortby ii desc').ids).toEqual([2, 1]);
+    expect(/ALIAS/.test(bitmap.execute('showcreate index'))).toEqual(true);
     bitmap.execute('drop index');
 });

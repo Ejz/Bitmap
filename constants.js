@@ -85,8 +85,12 @@ function BITMAP_ERROR_ID_NOT_EXISTS({index, id}) {
     return 'ID ' + id + ' for index "' + index + '" does not exist';
 }
 
-function BITMAP_ERROR_MULTIPLE_FOREIGN_KEYS({index, references, field}) {
-    return 'Index "' + index + '": field "' + field + '" references "' + references + '", that already has corresponding constraint';
+function BITMAP_ERROR_MULTIPLE_FOREIGN_KEYS({index, references}) {
+    return `Index "${index}" has multiple REFERENCES "${references}"`;
+}
+
+function BITMAP_ERROR_RESERVED_NAME({name}) {
+    return `Name "${name}" is reserved`;
 }
 
 let BITMAP = {

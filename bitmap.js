@@ -67,18 +67,35 @@ function CREATE({index, fields}) {
     if (storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_EXISTS, {index});
     }
+    let foreignKeys = Object.entries(fields).filter(([, {type: t}]) => t == C.TYPES.FOREIGNKEY);
+    let references = foreignKeys.map(([, {references: r}]) => r);
+    let found = references.find(r => !storage[r]);
+    if (found) {
+        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index: found});
+    }
+    let repeat = {};
+    for (let reference of references) {
+        if (repeat[reference]) {
+            let ctx = {index, references: reference};
+            throw new C.BitmapError(C.BITMAP_ERROR_MULTIPLE_FOREIGN_KEYS, ctx);
+        }
+        repeat[reference] = true;
+    }
+    let alias2field = Object.create(null);
+    for (let [name, field] of Object.entries(fields)) {
+        if (name == C.BITMAP_ID) {
+            throw new C.BitmapError(C.BITMAP_ERROR_RESERVED_NAME, {name});
+        }
+        field.aliases.forEach(a => alias2field[a] = name);
+    }
+    if (alias2field[C.BITMAP_ID]) {
+        throw new C.BitmapError(C.BITMAP_ERROR_RESERVED_NAME, {name: C.BITMAP_ID});
+    }
     for (let [name, field] of Object.entries(fields)) {
         let {type, prefixSearch, references} = field;
         if (!C.IS_NUMERIC(type)) {
             field.bitmaps = Object.create(null);
             if (type == C.TYPES.FOREIGNKEY) {
-                if (!storage[references]) {
-                    throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index: references});
-                }
-                // if (storage[references].links[index]) {
-                //     let ctx = {index, references, field: name};
-                //     throw new C.BitmapError(C.BITMAP_ERROR_MULTIPLE_FOREIGN_KEYS, ctx);
-                // }
                 storage[references].links[index] = field;
                 field.id2fk = Object.create(null);
             }
@@ -90,18 +107,20 @@ function CREATE({index, fields}) {
         newBitmap,
         links: Object.create(null),
         slowQueryLog: [],
+        alias2field,
     };
     storage[index].ids = storage[index].newBitmap();
     let nb = storage[index].newBitmap.bind(storage[index]);
     Object.entries(storage[index].fields).forEach(([, f]) => {
-        if (f.type == C.TYPES.DECIMAL) {
-            f.precision = Math.min(5, f.precision || 2);
-            let e = 10 ** f.precision;
-            f.min = Math.floor(f.min * e) / e;
-            f.max = Math.floor(f.max * e) / e;
+        if (C.IS_NUMERIC(f.type)) {
+            let e = 1;
+            if (f.type == C.TYPES.DECIMAL) {
+                f.precision = Math.min(5, f.precision || 2);
+                e = 10 ** f.precision;
+                f.min = Math.floor(f.min * e) / e;
+                f.max = Math.floor(f.max * e) / e;
+            }
             f.bsi = new BSI(f.min * e, f.max * e, nb);
-        } else if (C.IS_NUMERIC(f.type)) {
-            f.bsi = new BSI(f.min, f.max, nb);
         }
     });
     return C.BITMAP_OK;
@@ -212,13 +231,14 @@ function INSERT({index, id, values}) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
     if (queued.has(index, id)) {
-        queued.push({action: 'ADD', index, id, values});
+        queued.push({action: 'INSERT', index, id, values});
         return C.BITMAP_QUEUED;
     }
-    let {ids, fields} = storage[index];
+    let {ids, fields, alias2field} = storage[index];
     if (ids.has(id)) {
         throw new C.BitmapError(C.BITMAP_ERROR_ID_EXISTS);
     }
+    values = Object.keys(values).reduce((a, c) => (a[alias2field[c] || c] = values[c], a), {});
     for (let field of Object.keys(values)) {
         if (!fields[field]) {
             throw new C.BitmapError(C.BITMAP_ERROR_FIELD_NOT_EXISTS);
@@ -453,12 +473,14 @@ function SEARCH({
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
-    let {fields, ids} = storage[index];
+    let {fields, ids, alias2field} = storage[index];
+    sortby = alias2field[sortby] || sortby;
     if (sortby && (!fields[sortby] || !fields[sortby].bsi)) {
         let e = fields[sortby] ? C.BITMAP_ERROR_FIELD_NOT_SORTABLE : C.BITMAP_ERROR_FIELD_NOT_EXISTS;
         throw new C.BitmapError(e);
     }
-    foreignKeys = _.unique(foreignKeys || []);
+    foreignKeys = (foreignKeys || []).map(k => alias2field[k] || k);
+    foreignKeys = _.unique(foreignKeys);
     for (let fk of foreignKeys) {
         if (!fields[fk] || !fields[fk].id2fk) {
             let e = fields[fk] ? C.BITMAP_ERROR_FIELD_NOT_FOREIGN_KEY : C.BITMAP_ERROR_FIELD_NOT_EXISTS;
@@ -487,6 +509,7 @@ function SEARCH({
             });
         }
         let {field, value} = term;
+        field = alias2field[field] || field;
         let type, bitmaps, min, max, bsi;
         if (field === undefined) {
             let fulltext = Object.entries(fields).map(([, v]) => v).filter(f => f.type == C.TYPES.FULLTEXT);
@@ -669,6 +692,9 @@ function SHOWCREATE({index}) {
             case C.TYPES.INTEGER:
                 ret.push('MIN', field.min, 'MAX', field.max);
                 break;
+            case C.TYPES.DECIMAL:
+                ret.push('MIN', field.min, 'MAX', field.max, 'PRECISION', field.precision);
+                break;
             case C.TYPES.DATE:
                 ret.push('MIN', "'" + d2s(new Date(field.min * 864E5)) + "'");
                 ret.push('MAX', "'" + d2s(new Date(field.max * 864E5)) + "'");
@@ -684,6 +710,9 @@ function SHOWCREATE({index}) {
             case C.TYPES.FOREIGNKEY:
                 ret.push('REFERENCES', '"' + field.references + '"');
                 break;
+        }
+        for (let alias of _.unique(field.aliases)) {
+            ret.push('ALIAS', '"' + alias + '"');
         }
         return ret.join(' ');
     });

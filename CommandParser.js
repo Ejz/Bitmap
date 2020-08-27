@@ -8,7 +8,7 @@ let KW = [
     'PING', 'CREATE', 'DROP', 'LIST', 'ADD', 'STAT', 'RENAME',
     'INSERT', 'DELETE', 'DELETEALL', 'REID',
     'SEARCH', 'CURSOR',
-    'TRUNCATE',
+    'TRUNCATE', 'ALIAS',
     'SHOWCREATE', 'SLOWQUERYLOG',
     'FIELDS', 'VALUES',
     'NOSTOPWORDS', 'PREFIXSEARCH',
@@ -251,6 +251,10 @@ class CommandParser {
                     } else if (field.type == C.TYPES.FOREIGNKEY) {
                         this.expectKw('REFERENCES');
                         field.references = this.expectIdent();
+                    }
+                    field.aliases = [];
+                    while (this.tryKw('ALIAS')) {
+                        field.aliases.push(this.expectIdent());
                     }
                     this.command.fields[ident] = field;
                 }

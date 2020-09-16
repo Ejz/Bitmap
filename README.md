@@ -30,9 +30,9 @@ $ kill 23467
 
 - Supports `INTEGER`, `DECIMAL`, `DATE`, `DATETIME`, `STRING`, `BOOLEAN`, `ARRAY`, `FOREIGNKEY`, `FULLTEXT` types
 - Range queries for numeric types
-- Intuitive query syntax (see [Query Syntax]())
+- Intuitive query syntax (see [Query Syntax](#query-syntax))
 - Cursor-based pagination for REALLY large record sets
-- More productive than Elasticsearch (see [Benchmark]())
+- More productive than Elasticsearch (see [Benchmark](#benchmark))
 
 ## Query Syntax
 

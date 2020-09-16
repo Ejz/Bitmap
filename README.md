@@ -4,6 +4,26 @@ An open sourced high-speed index. Based on [Roaring Bitmaps](https://roaringbitm
 
 ## Quick start
 
+```bash
+$ sudo npm update -g --unsafe-perm ejz-bitmap
+$ bitmap-server &
+Running .. port=61000 host=127.0.0.1
+$ bitmap-client
+> stat
+{
+  "memory_rss": 226549760,
+  "memory_rss_human": "227M",
+  "memory_heap_total": 132669440,
+  "memory_heap_total_human": "133M",
+  "memory_heap_used": 78631192,
+  "memory_heap_used_human": "79M",
+  "memory_external": 244029,
+  "memory_external_human": "244K"
+}
+```
+
+### From sources
+
 Clone and start:
 
 ```bash

@@ -55,8 +55,8 @@ function createServer(settings = {}) {
     return {
         server,
         settings,
-        listen() {
-            this.server.listen(this.settings.port, this.settings.host);
+        listen(...args) {
+            this.server.listen(this.settings.port, this.settings.host, ...args);
         },
         close() {
             this.server.close();

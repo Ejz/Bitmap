@@ -1,15 +1,16 @@
 {
     "name": "ejz-bitmap",
-    "version": "1.0.8",
-    "description": "",
+    "version": "1.1.1",
+    "description": "An open sourced high-speed index. Based on Roaring Bitmaps technology.",
     "main": "index.js",
     "scripts": {
         "test": "jest"
     },
-    "keywords": [],
+    "keywords": ["index", "bitmap", "high-speed", "storage"],
     "author": "",
     "bin": {
-        "bitmap-server": "./bin/index.js"
+        "bitmap-server": "./bin/server.js",
+        "bitmap-client": "./bin/client.js"
     },
     "dependencies": {
         "cheerio": "^1.0.0-rc.3",

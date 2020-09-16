@@ -32,7 +32,7 @@ $ kill 23467
 - Range queries for numeric types
 - Intuitive query syntax (see [Query Syntax](#query-syntax))
 - Cursor-based pagination for REALLY large record sets
-- More productive than Elasticsearch (see [Benchmark](#benchmark))
+- More productive (app. 30%) than Elasticsearch (see [Benchmark](#benchmark))
 
 ## Query Syntax
 

@@ -38,13 +38,12 @@ test('bitmap / RENAME / 1', () => {
 
 test('bitmap / STAT', () => {
     let r1 = bitmap.execute('stat');
-    expect(/^queued$/.test(Object.keys(r1)[0])).toEqual(true);
     expect(/^memory_/.test(Object.keys(r1)[1])).toEqual(true);
     bitmap.execute('create a');
     bitmap.execute('add a 1');
     bitmap.execute('add a 3');
     let r2 = bitmap.execute('stat a');
-    expect(r2).toEqual({size: 2, id_minimum: 1, id_maximum: 3, used_bitmaps: 1, used_bits: 2, queued: 0});
+    expect(r2).toEqual({size: 2, id_minimum: 1, id_maximum: 3, used_bitmaps: 1, used_bits: 2});
 });
 
 test('bitmap / ADD', () => {
@@ -66,7 +65,7 @@ test('bitmap / ADD', () => {
     expect(r4).toEqual(C.BITMAP_OK);
     let r5 = bitmap.execute('stat a');
     let used_bitmaps = 1 + 2 + (33 - 16) + 33 + 1 + 1 + 2;
-    expect(r5).toEqual({size: 3, id_minimum: 1, id_maximum: 3, used_bitmaps, used_bits: r5.used_bits, queued: 0});
+    expect(r5).toEqual({size: 3, id_minimum: 1, id_maximum: 3, used_bitmaps, used_bits: r5.used_bits});
 });
 
 test('bitmap / SEARCH / 1', () => {

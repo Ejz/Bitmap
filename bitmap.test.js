@@ -2,6 +2,14 @@ var C = require('./constants');
 var _ = require('./helpers');
 var bitmap = require('./bitmap');
 
+function setup() {
+    bitmap.execute('list').forEach(i => bitmap.execute('drop ' + i));
+}
+
+beforeEach(setup);
+
+afterEach(setup);
+
 test('bitmap / PING', () => {
     let r1 = bitmap.execute('ping');
     expect(r1).toEqual(C.BITMAP_OK);
@@ -26,25 +34,6 @@ test('bitmap / RENAME / 1', () => {
     expect(r2).toEqual(C.BITMAP_OK);
     let r4 = bitmap.execute('list');
     expect(r4).toEqual(['b']);
-    bitmap.execute('drop b');
-});
-
-test('bitmap / RENAME / 2', () => {
-    bitmap.execute('create a');
-    bitmap.execute('create b fields a foreignkey references a');
-    bitmap.execute('rename a a1');
-    expect(bitmap.dump('a1').links.b.references).toEqual('a1');
-    expect(bitmap.dump('b').fields.a.references).toEqual('a1');
-    bitmap.execute('drop a1');
-});
-
-test('bitmap / RENAME / 3', () => {
-    bitmap.execute('create a');
-    bitmap.execute('create b fields a foreignkey references a');
-    bitmap.execute('rename b b1');
-    expect(bitmap.dump('a').links.b1.references).toEqual('a');
-    expect(bitmap.dump('b1').fields.a.references).toEqual('a');
-    bitmap.execute('drop a');
 });
 
 test('bitmap / STAT', () => {
@@ -56,7 +45,6 @@ test('bitmap / STAT', () => {
     bitmap.execute('add a 3');
     let r2 = bitmap.execute('stat a');
     expect(r2).toEqual({size: 2, id_minimum: 1, id_maximum: 3, used_bitmaps: 1, used_bits: 2, queued: 0});
-    bitmap.execute('drop a');
 });
 
 test('bitmap / ADD', () => {
@@ -79,7 +67,6 @@ test('bitmap / ADD', () => {
     let r5 = bitmap.execute('stat a');
     let used_bitmaps = 1 + 2 + (33 - 16) + 33 + 1 + 1 + 2;
     expect(r5).toEqual({size: 3, id_minimum: 1, id_maximum: 3, used_bitmaps, used_bits: r5.used_bits, queued: 0});
-    bitmap.execute('drop a');
 });
 
 test('bitmap / SEARCH / 1', () => {
@@ -119,7 +106,6 @@ test('bitmap / SEARCH / 1', () => {
         let {ids} = bitmap.execute(`search index '${query}'`);
         expect(ids).toEqual(result);
     }
-    bitmap.execute('drop index');
 });
 
 test('bitmap / SEARCH / 2', () => {
@@ -166,7 +152,6 @@ test('bitmap / SEARCH / 2', () => {
         let {ids} = bitmap.execute(`search index '${query}'`);
         expect(ids).toEqual(result);
     }
-    bitmap.execute('drop index');
 });
 
 test('bitmap / SEARCH / 3', () => {
@@ -206,8 +191,6 @@ test('bitmap / SEARCH / LIMIT', () => {
     //
     let r2 = bitmap.execute('search index \'* & @id > 7\' limit 1');
     expect(r2).toEqual({total: 2, ids: [8]});
-    //
-    bitmap.execute('drop index');
 });
 
 test('bitmap / SEARCH / SORTBY', () => {
@@ -233,8 +216,6 @@ test('bitmap / SEARCH / SORTBY', () => {
     let {ids: ids3, lastSortbyValue} = bitmap.execute('search index \'*\' sortby f1 desc limit 10');
     values.sort(desc);
     expect(ids3).toEqual(values.map(_ => _[0]).slice(0, 10));
-    //
-    bitmap.execute('drop index');
 });
 
 test('bitmap / CURSOR / 1', () => {
@@ -249,13 +230,11 @@ test('bitmap / CURSOR / 1', () => {
     let r3 = bitmap.execute('cursor ' + r1.cursor);
     expect(r3.ids).toEqual([3]);
     expect(r3.cursor).toEqual(null);
-    bitmap.execute('drop index');
 });
 
 test('bitmap / CURSOR / 2', () => {
     bitmap.execute('create index');
     expect(() => bitmap.execute('search index \'*\' withcursor limit 0')).toThrow(C.CommandParserError);
-    bitmap.execute('drop index');
 });
 
 test('bitmap / CURSOR / 3', async () => {
@@ -268,7 +247,6 @@ test('bitmap / CURSOR / 3', async () => {
     expect(r1.ids).toEqual([2]);
     await new Promise(r => setTimeout(r, 1500));
     expect(() => bitmap.execute('cursor ' + cursor)).toThrow(C.BitmapError);
-    bitmap.execute('drop index');
 });
 
 test('bitmap / CURSOR / 4', async () => {
@@ -291,7 +269,6 @@ test('bitmap / CURSOR / 4', async () => {
     let r5 = bitmap.execute('cursor ' + cursor);
     expect(r5.ids).toEqual([5]);
     expect(r5.cursor).toEqual(null);
-    bitmap.execute('drop index');
 });
 
 test('bitmap / CURSOR / 5', async () => {
@@ -308,7 +285,6 @@ test('bitmap / CURSOR / 5', async () => {
     let r2 = bitmap.execute('cursor ' + cursor);
     expect(r2.ids).toEqual([1]);
     expect(r2.cursor).toEqual(null);
-    bitmap.execute('drop index');
 });
 
 test('bitmap / CURSOR / 6', async () => {
@@ -321,8 +297,6 @@ test('bitmap / CURSOR / 6', async () => {
     expect(records).toEqual([{id: 1, parent: 1}]);
     let res = bitmap.execute('cursor ' + cursor);
     expect(res.records).toEqual([{id: 2, parent: 1}]);
-    bitmap.execute('drop child');
-    bitmap.execute('drop parent');
 });
 
 test('bitmap / SEARCH / WITHFOREIGNKEYS', () => {
@@ -337,8 +311,6 @@ test('bitmap / SEARCH / WITHFOREIGNKEYS', () => {
     expect(r.total).toEqual(1);
     expect(r.records).toEqual([{id: 2, parent: 2}]);
     expect('ids' in r).toEqual(false);
-    bitmap.execute('drop child');
-    bitmap.execute('drop parent');
 });
 
 test('bitmap / DROP', () => {
@@ -346,7 +318,7 @@ test('bitmap / DROP', () => {
     bitmap.execute('create b fields a foreignkey references a');
     bitmap.execute('create c fields b foreignkey references b');
     bitmap.execute('drop a');
-    expect(bitmap.execute('list')).toEqual([]);
+    expect(bitmap.execute('list')).toEqual(['b', 'c']);
 });
 
 test('bitmap / SEARCH / 4', () => {
@@ -374,8 +346,6 @@ test('bitmap / SEARCH / 4', () => {
         let {ids} = bitmap.execute(`search ${index} '${query}'`);
         expect(ids).toEqual(result);
     }
-    bitmap.execute('drop child');
-    bitmap.execute('drop parent');
 });
 
 test('bitmap / SEARCH / 5', () => {
@@ -393,15 +363,12 @@ test('bitmap / SEARCH / 5', () => {
         let {ids} = bitmap.execute(`search index '${query}'`);
         expect(ids).toEqual(result);
     }
-    bitmap.execute('drop index');
 });
 
 test('bitmap / SEARCH / 6', () => {
     bitmap.execute('create parent');
     bitmap.execute('create child fields parent_id foreignkey references parent');
     bitmap.execute('search child \'*\' withcursor withforeignkeys "parent_id"');
-    bitmap.execute('drop child');
-    bitmap.execute('drop parent');
 });
 
 test('bitmap / TRUNCATE / 1', () => {
@@ -412,7 +379,6 @@ test('bitmap / TRUNCATE / 1', () => {
     bitmap.execute('add index 1');
     let res = bitmap.execute('search index \'*\'');
     expect(res.total).toEqual(1);
-    bitmap.execute('drop index');
 });
 
 test('bitmap / TRUNCATE / 2', () => {
@@ -421,16 +387,21 @@ test('bitmap / TRUNCATE / 2', () => {
     bitmap.execute('add p 1');
     bitmap.execute('add c 1 values p 1');
     bitmap.execute('truncate p');
-    let res = bitmap.execute('search c \'*\'');
-    expect(res.total).toEqual(0);
-    bitmap.execute('drop p');
+    let res1 = bitmap.execute('search c \'*\'');
+    expect(res1.total).toEqual(1);
+    bitmap.execute('add p 2');
+    let res2 = bitmap.execute('search p \'@@c:(*)\'');
+    expect(res2.total).toEqual(0);
+    bitmap.execute('add p 1');
+    bitmap.execute('add c 2 values p 3');
+    let res3 = bitmap.execute('search p \'@@c:(*)\'');
+    expect(res3.total).toEqual(1);
 });
 
 test('bitmap / TRUNCATE / 3', () => {
     bitmap.execute('create p');
     bitmap.execute('create c fields p foreignkey references p');
     bitmap.execute('truncate c');
-    bitmap.execute('drop p');
 });
 
 test('bitmap / DELETE / 1', async () => {
@@ -447,7 +418,6 @@ test('bitmap / DELETE / 1', async () => {
     bitmap.execute('insert a 2');
     res = bitmap.execute('search a \'*\'');
     expect(res.total).toEqual(2);
-    bitmap.execute('drop a');
 });
 
 test('bitmap / DELETE / 2', async () => {
@@ -461,7 +431,6 @@ test('bitmap / DELETE / 2', async () => {
     await new Promise(r => setTimeout(r, 2000));
     let {ids} = bitmap.execute('search p \'@@c:(*)\'');
     expect(ids).toEqual([1]);
-    bitmap.execute('drop p');
 });
 
 test('bitmap / DELETEALL / 1', async () => {
@@ -474,7 +443,6 @@ test('bitmap / DELETEALL / 1', async () => {
     await new Promise(r => setTimeout(r, 2000));
     let {ids} = bitmap.execute('search a \'*\'');
     expect(ids).toEqual([1, 10]);
-    bitmap.execute('drop a');
 });
 
 test('bitmap / DELETEALL / 2', async () => {
@@ -487,11 +455,10 @@ test('bitmap / DELETEALL / 2', async () => {
     bitmap.execute('insert b 2 values a 2');
     bitmap.execute('insert c 1 values b 1');
     bitmap.execute('insert c 2 values b 2');
-    bitmap.execute('deleteall a \'@id:1\' withforeignkeys');
+    bitmap.execute('deleteall a \'@id:1\'');
     await new Promise(r => setTimeout(r, 2000));
     let {ids} = bitmap.execute('search c \'*\'');
-    expect(ids).toEqual([2]);
-    bitmap.execute('drop a');
+    expect(ids).toEqual([1, 2]);
 });
 
 test('bitmap / REID / 1', async () => {
@@ -502,7 +469,6 @@ test('bitmap / REID / 1', async () => {
     bitmap.execute('reid a 1 2');
     await new Promise(r => setTimeout(r, 2000));
     expect(bitmap.execute('search a \'@s1:1\'').ids).toEqual([2]);
-    bitmap.execute('drop a');
 });
 
 test('bitmap / REID / 2', async () => {
@@ -518,7 +484,6 @@ test('bitmap / REID / 2', async () => {
     await new Promise(r => setTimeout(r, 2000));
     expect(bitmap.execute('search p \'@@c:(@id:1)\'').ids).toEqual([2]);
     expect(bitmap.execute('search p \'@@c:(@p:1)\'').ids).toEqual([1]);
-    bitmap.execute('drop p');
 });
 
 test('bitmap / REID / 3', async () => {
@@ -531,8 +496,7 @@ test('bitmap / REID / 3', async () => {
     expect(bitmap.execute('search c \'@p:1\'').ids).toEqual([1]);
     bitmap.execute('reid p 1 2');
     await new Promise(r => setTimeout(r, 2000));
-    expect(bitmap.execute('search c \'@p:2\'').ids).toEqual([1]);
-    bitmap.execute('drop p');
+    expect(bitmap.execute('search c \'@p:2\'').ids).toEqual([2]);
 });
 
 test('bitmap / DECIMAL', () => {
@@ -554,7 +518,6 @@ test('bitmap / DECIMAL', () => {
         let {ids} = bitmap.execute(`search index '${query}'`);
         expect(ids).toEqual(result);
     }
-    bitmap.execute('drop index');
 });
 
 test('bitmap / aliases', () => {
@@ -565,5 +528,16 @@ test('bitmap / aliases', () => {
     expect(bitmap.execute('search index \'@fooBar:bar\'').ids).toEqual([2]);
     expect(bitmap.execute('search index \'*\' sortby ii desc').ids).toEqual([2, 1]);
     expect(/ALIAS/.test(bitmap.execute('showcreate index'))).toEqual(true);
-    bitmap.execute('drop index');
+});
+
+test('bitmap / extra', () => {
+    bitmap.execute('create index');
+    bitmap.execute(`add index 1`);
+    let {ids: i1} = bitmap.execute(`search index '*'`);
+    expect(i1).toEqual([1]);
+    let {ids: i2} = bitmap.execute(`search index '@@p:(*)'`);
+    expect(i2).toEqual([]);
+    bitmap.execute('create p');
+    let {ids: i3} = bitmap.execute(`search index '@@p:(*)'`);
+    expect(i3).toEqual([]);
 });

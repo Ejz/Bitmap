@@ -67,20 +67,6 @@ function CREATE({index, fields}) {
     if (storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_EXISTS, {index});
     }
-    let foreignKeys = Object.entries(fields).filter(([, {type: t}]) => t == C.TYPES.FOREIGNKEY);
-    let references = foreignKeys.map(([, {references: r}]) => r);
-    let found = references.find(r => !storage[r]);
-    if (found) {
-        throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index: found});
-    }
-    let repeat = {};
-    for (let reference of references) {
-        if (repeat[reference]) {
-            let ctx = {index, references: reference};
-            throw new C.BitmapError(C.BITMAP_ERROR_MULTIPLE_FOREIGN_KEYS, ctx);
-        }
-        repeat[reference] = true;
-    }
     let alias2field = Object.create(null);
     for (let [name, field] of Object.entries(fields)) {
         if (name == C.BITMAP_ID) {
@@ -92,20 +78,19 @@ function CREATE({index, fields}) {
         throw new C.BitmapError(C.BITMAP_ERROR_RESERVED_NAME, {name: C.BITMAP_ID});
     }
     for (let [name, field] of Object.entries(fields)) {
-        let {type, prefixSearch, references} = field;
-        if (!C.IS_NUMERIC(type)) {
-            field.bitmaps = Object.create(null);
-            if (type == C.TYPES.FOREIGNKEY) {
-                storage[references].links[index] = field;
-                field.id2fk = Object.create(null);
-            }
+        let {type} = field;
+        if (C.IS_NUMERIC(type)) {
+            continue;
+        }
+        field.bitmaps = Object.create(null);
+        if (type == C.TYPES.FOREIGNKEY) {
+            field.id2fk = Object.create(null);
         }
     }
     storage[index] = {
         fields,
         bitmaps: [],
         newBitmap,
-        links: Object.create(null),
         slowQueryLog: [],
         alias2field,
     };
@@ -126,34 +111,20 @@ function CREATE({index, fields}) {
     return C.BITMAP_OK;
 }
 
-function DROP({index, fromTruncate}) {
+function DROP({index}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
-    }
-    let create = fromTruncate ? [SHOWCREATE({index})] : [];
-    for (let [k, {fields, links}] of Object.entries(storage)) {
-        let isChild = Object.entries(fields).filter(
-            ([, f]) => f.type == C.TYPES.FOREIGNKEY && f.references == index
-        ).length;
-        if (isChild) {
-            let res = DROP({index: k, fromTruncate});
-            if (fromTruncate) {
-                create = create.concat(res);
-            }
-        }
-        let isParent = links[index];
-        if (isParent) {
-            delete links[index];
-        }
     }
     storage[index].bitmaps.forEach(b => b.clear());
     delete storage[index];
     queued.clear(index);
-    return fromTruncate ? create : C.BITMAP_OK;
+    return C.BITMAP_OK;
 }
 
 function TRUNCATE({index}) {
-    DROP({index, fromTruncate: true}).forEach(execute);
+    let create = SHOWCREATE({index});
+    DROP({index});
+    execute(create);
     return C.BITMAP_OK;
 }
 
@@ -166,13 +137,6 @@ function RENAME({index, name}) {
     }
     storage[name] = storage[index];
     delete storage[index];
-    Object.entries(storage[name].links).forEach(([, field]) => field.references = name);
-    Object.entries(storage).forEach(([k, v]) => {
-        if (k != name && index in v.links) {
-            v.links[name] = v.links[index];
-            delete v.links[index];
-        }
-    });
     return C.BITMAP_OK;
 }
 
@@ -243,7 +207,7 @@ function INSERT({index, id, values}) {
         if (!fields[field]) {
             throw new C.BitmapError(C.BITMAP_ERROR_FIELD_NOT_EXISTS);
         }
-        let {type, references, min, max, separator} = fields[field];
+        let {type, min, max, separator} = fields[field];
         let e, ctx, v;
         switch (type) {
             case C.TYPES.INTEGER:
@@ -308,15 +272,6 @@ function INSERT({index, id, values}) {
                 break;
             case C.TYPES.FOREIGNKEY:
                 v = _.toInteger(values[field]);
-                if (
-                    v === undefined ||
-                    v < 1 ||
-                    !storage[references].ids.has(v)
-                ) {
-                    e = C.BITMAP_ERROR_INVALID_FOREIGN_KEY_ID;
-                    ctx = {references, value: values[field]};
-                    throw new C.BitmapError(e, ctx);
-                }
                 break;
         }
         values[field] = v;
@@ -369,36 +324,33 @@ function INSERT({index, id, values}) {
     return C.BITMAP_OK;
 }
 
-function DELETE({index, id, withForeignKeys, sync}) {
+function DELETE({index, id, sync}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
-    let {ids, bitmaps, fields, links} = storage[index];
+    let {ids, bitmaps, fields} = storage[index];
     if (!ids.has(id)) {
         throw new C.BitmapError(C.BITMAP_ERROR_ID_NOT_EXISTS, {index, id});
     }
     if (!sync) {
-        queued.push({action: 'DELETE', index, id, withForeignKeys, sync: true});
+        queued.push({action: 'DELETE', index, id, sync: true});
         startSyncTimer();
         return C.BITMAP_QUEUED;
     }
     bitmaps.forEach(bitmap => bitmap.delete(id));
     for (let [, field] of Object.entries(fields)) {
-        if (!field.id2fk) continue;
+        if (!field.id2fk) {
+            continue;
+        }
         delete field.id2fk[id];
-    }
-    for (let child of Object.keys(withForeignKeys ? links : {})) {
-        let {fields} = storage[child];
-        let name = Object.keys(fields).find(f => fields[f].id2fk && fields[f].references == index);
-        DELETEALL({index: child, query: `@${name}:${id}`, withForeignKeys, sync});
     }
     return C.BITMAP_OK;
 }
 
-function DELETEALL({index, query, withForeignKeys, sync}) {
+function DELETEALL({index, query, sync}) {
     let iterator = SEARCH({index, query, returnIterator: true});
     for (let id of [...iterator]) {
-        DELETE({index, id, withForeignKeys, sync});
+        DELETE({index, id, sync});
     }
     return C.BITMAP_QUEUED;
 }
@@ -407,7 +359,7 @@ function REID({index, id1, id2, sync}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
-    let {ids, bitmaps, fields, links} = storage[index];
+    let {ids, bitmaps, fields} = storage[index];
     if (!ids.has(id1) || !ids.has(id2)) {
         let id = ids.has(id1) ? id2 : id1;
         throw new C.BitmapError(C.BITMAP_ERROR_ID_NOT_EXISTS, {index, id});
@@ -430,30 +382,13 @@ function REID({index, id1, id2, sync}) {
         }
     });
     for (let [, field] of Object.entries(fields)) {
-        if (!field.id2fk) continue;
+        if (!field.id2fk) {
+            continue;
+        }
         let fk1 = field.id2fk[id1];
         let fk2 = field.id2fk[id2];
         field.id2fk[id1] = fk2;
         field.id2fk[id2] = fk1;
-    }
-    for (let [child, field] of Object.entries(links)) {
-        let bm1 = field.bitmaps[id1];
-        let bm2 = field.bitmaps[id2];
-        if (bm1 && bm2) {
-            field.bitmaps[id1] = bm2;
-            field.bitmaps[id2] = bm1;
-            continue;
-        }
-        if (bm1) {
-            delete field.bitmaps[id1];
-            field.bitmaps[id2] = bm1;
-            continue;
-        }
-        if (bm2) {
-            field.bitmaps[id1] = bm2;
-            delete field.bitmaps[id2];
-            continue;
-        }
     }
     return C.BITMAP_OK;
 }
@@ -471,6 +406,9 @@ function SEARCH({
     returnIterator,
 }) {
     if (!storage[index]) {
+        if (parent) {
+            return new RoaringBitmap();
+        }
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
     let {fields, ids, alias2field} = storage[index];
@@ -595,10 +533,20 @@ function SEARCH({
         }
     });
     if (parent) {
-        let id2fk = storage[parent].links[index].id2fk;
+        let _fields = _.filter(fields, (_k, {type: t, references: r}) => t == C.TYPES.FOREIGNKEY && r == parent);
+        let keys = Object.keys(_fields);
+        if (keys.length > 1) {
+            throw new C.BitmapError(C.BITMAP_ERROR_AMBIGUOUS_REFERENCE);
+        }
+        if (!keys.length) {
+            return new RoaringBitmap();
+        }
+        let {id2fk} = _fields[keys.pop()];
         let ret = new RoaringBitmap();
+        let {ids} = storage[parent];
         for (let id of bitmap) {
-            ret.add(id2fk[id]);
+            let _ = id2fk[id];
+            ids.has(_) && ret.add(_);
         }
         return ret;
     }

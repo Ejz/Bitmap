@@ -70,7 +70,7 @@ function BITMAP_ERROR_EXPECT_INTEGER({value, field}) {
 }
 
 function BITMAP_ERROR_INVALID_FOREIGN_KEY_ID({value, references}) {
-    return '\'' + value + '\' for field "' + references + '" is invalid';
+    return '\'' + value + '\' for index "' + references + '" is invalid';
 }
 
 function BITMAP_ERROR_INDEX_EXISTS({index}) {
@@ -93,6 +93,10 @@ function BITMAP_ERROR_RESERVED_NAME({name}) {
     return `Name "${name}" is reserved`;
 }
 
+function BITMAP_ERROR_AMBIGUOUS_REFERENCE() {
+    return 'BITMAP_ERROR_AMBIGUOUS_REFERENCE';
+}
+
 let BITMAP = {
     BITMAP_OK: 'OK',
     BITMAP_QUEUED: 'QUEUED',
@@ -113,6 +117,7 @@ let BITMAP = {
     BITMAP_ERROR_FIELD_NOT_SORTABLE: 'BITMAP_ERROR_FIELD_NOT_SORTABLE',
     BITMAP_ERROR_FIELD_NOT_FOREIGN_KEY: 'BITMAP_ERROR_FIELD_NOT_FOREIGN_KEY',
     BITMAP_ERROR_STAT_ON_INTEGER_TYPE: 'BITMAP_ERROR_STAT_ON_INTEGER_TYPE',
+    BITMAP_ERROR_AMBIGUOUS_REFERENCE: 'BITMAP_ERROR_AMBIGUOUS_REFERENCE',
 };
 
 let TYPES = {

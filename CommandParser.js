@@ -17,9 +17,9 @@ let KW = [
     'REFERENCES',
     'SORTBY', 'LIMIT',
     'ASC', 'DESC',
-    'WITHFOREIGNKEYS',
     'UNDEFINED',
     'TIMEOUT', 'WITHCURSOR',
+    'WITHFOREIGNKEYS',
     ...TYPES,
 ];
 
@@ -171,13 +171,11 @@ class CommandParser {
             case 'DELETE':
                 this.command.index = this.expectIdent();
                 this.command.id = this.expectPositiveInteger();
-                this.command.withForeignKeys = !!this.tryKw('WITHFOREIGNKEYS');
                 this.expectEnd();
                 return this.command;
             case 'DELETEALL':
                 this.command.index = this.expectIdent();
                 this.command.query = this.expectValue();
-                this.command.withForeignKeys = !!this.tryKw('WITHFOREIGNKEYS');
                 this.expectEnd();
                 return this.command;
             case 'DROP':

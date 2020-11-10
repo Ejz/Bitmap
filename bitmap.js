@@ -4,14 +4,9 @@ var C = require('./constants');
 var _ = require('./helpers');
 var CommandParser = require('./CommandParser');
 var QueryParser = require('./QueryParser');
-var Queued = require('./Queued');
 
 var storage = Object.create(null);
 var cursors = Object.create(null);
-var syncTimer = null;
-var syncInterval = 1000;
-var syncTimeout = 300;
-var queued = new Queued();
 
 var isUnique = arr => arr.length == _.unique(arr).length;
 
@@ -117,7 +112,6 @@ function DROP({index}) {
     }
     storage[index].bitmaps.forEach(b => b.clear());
     delete storage[index];
-    queued.clear(index);
     return C.BITMAP_OK;
 }
 
@@ -142,7 +136,7 @@ function RENAME({index, name}) {
 
 function STAT({index, field, limit}) {
     if (!index) {
-        let reply = {queued: queued.length()};
+        let reply = {};
         let memoryUsage = process.memoryUsage();
         for (let key of Object.keys(memoryUsage)) {
             let k = 'memory_' + key.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
@@ -165,7 +159,6 @@ function STAT({index, field, limit}) {
             id_maximum: size > 0 ? ids.maximum() : 0,
             used_bitmaps: bitmaps.length,
             used_bits: bitmaps.reduce((acc, v) => acc + v.size, 0),
-            queued: queued.length(index),
         };
     }
     if (!fields[field]) {
@@ -193,10 +186,6 @@ function ADD(...args) {
 function INSERT({index, id, values}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
-    }
-    if (queued.has(index, id)) {
-        queued.push({action: 'INSERT', index, id, values});
-        return C.BITMAP_QUEUED;
     }
     let {ids, fields, alias2field} = storage[index];
     if (ids.has(id)) {
@@ -324,18 +313,13 @@ function INSERT({index, id, values}) {
     return C.BITMAP_OK;
 }
 
-function DELETE({index, id, sync}) {
+function DELETE({index, id}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
     let {ids, bitmaps, fields} = storage[index];
     if (!ids.has(id)) {
         throw new C.BitmapError(C.BITMAP_ERROR_ID_NOT_EXISTS, {index, id});
-    }
-    if (!sync) {
-        queued.push({action: 'DELETE', index, id, sync: true});
-        startSyncTimer();
-        return C.BITMAP_QUEUED;
     }
     bitmaps.forEach(bitmap => bitmap.delete(id));
     for (let [, field] of Object.entries(fields)) {
@@ -347,15 +331,15 @@ function DELETE({index, id, sync}) {
     return C.BITMAP_OK;
 }
 
-function DELETEALL({index, query, sync}) {
+function DELETEALL({index, query}) {
     let iterator = SEARCH({index, query, returnIterator: true});
     for (let id of [...iterator]) {
-        DELETE({index, id, sync});
+        DELETE({index, id});
     }
-    return C.BITMAP_QUEUED;
+    return C.BITMAP_OK;
 }
 
-function REID({index, id1, id2, sync}) {
+function REID({index, id1, id2}) {
     if (!storage[index]) {
         throw new C.BitmapError(C.BITMAP_ERROR_INDEX_NOT_EXISTS, {index});
     }
@@ -363,12 +347,6 @@ function REID({index, id1, id2, sync}) {
     if (!ids.has(id1) || !ids.has(id2)) {
         let id = ids.has(id1) ? id2 : id1;
         throw new C.BitmapError(C.BITMAP_ERROR_ID_NOT_EXISTS, {index, id});
-    }
-    if (!sync) {
-        queued.push({action: 'REID', index, id: id1, id1, id2, sync: true});
-        queued.push({index, id: id2});
-        startSyncTimer();
-        return C.BITMAP_QUEUED;
     }
     bitmaps.forEach(bitmap => {
         let b1 = bitmap.has(id1);
@@ -702,32 +680,6 @@ function generateCursor() {
 
 function deleteCursor(cursor) {
     delete cursors[cursor];
-}
-
-function startSyncTimer() {
-    if (!syncTimer) {
-        syncTimer = setTimeout(syncProcedure, syncInterval);
-    }
-}
-
-function syncProcedure() {
-    syncTimer = null;
-    let start = Number(new Date());
-    while (queued.length()) {
-        let command = queued.shift();
-        let {action} = command;
-        delete command.action;
-        if (!action) continue;
-        try {
-            module.exports[action](command);
-        } catch (e) {
-            console.log(action, command, e);
-        }
-        if (Number(new Date()) > start + syncTimeout) {
-            break;
-        }
-    }
-    queued.length() && startSyncTimer();
 }
 
 module.exports = {
